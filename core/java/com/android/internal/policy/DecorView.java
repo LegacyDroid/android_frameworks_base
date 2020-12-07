@@ -2009,6 +2009,7 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
             if (getForeground() != null) {
                 drawableChanged();
             }
+            notifyCaptionHeightChanged();
         }
     }
 
