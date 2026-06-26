@@ -2,9 +2,12 @@ package com.android.systemui.qs.tiles;
 
 import android.content.Intent;
 import android.os.Process;
+import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.os.SystemProperties;
 import android.provider.Settings;
 import android.service.quicksettings.Tile;
+import android.view.IWindowManager;
 import android.view.Surface;
 
 import com.android.internal.BoringdroidManager;
@@ -35,14 +38,19 @@ public class LegacyDexTile extends QSTileImpl<BooleanState> {
         boolean enabled = !BoringdroidManager.isPCModeEnabled();
         SystemProperties.set("persist.sys.pcmode.enabled", enabled ? "true" : "false");
         SystemProperties.set("persist.sys.systemuiplugin.enabled", enabled ? "true" : "false");
-        if (enabled) {
+        IWindowManager wm = IWindowManager.Stub.asInterface(
+                ServiceManager.getService("window"));
+        try {
+            if (enabled) {
+                wm.freezeRotation(Surface.ROTATION_90);
+            } else {
+                wm.thawRotation();
+            }
+        } catch (RemoteException e) {
+            // fallback: set system rotation manually
             Settings.System.putInt(mContext.getContentResolver(),
-                    Settings.System.ACCELEROMETER_ROTATION, 0);
-            Settings.System.putInt(mContext.getContentResolver(),
-                    Settings.System.USER_ROTATION, Surface.ROTATION_0);
-        } else {
-            Settings.System.putInt(mContext.getContentResolver(),
-                    Settings.System.ACCELEROMETER_ROTATION, 1);
+                    Settings.System.USER_ROTATION,
+                    enabled ? Surface.ROTATION_90 : Surface.ROTATION_0);
         }
         Process.killProcess(Process.myPid());
     }
