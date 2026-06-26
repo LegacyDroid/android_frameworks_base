@@ -2071,8 +2071,12 @@ public class DecorView extends FrameLayout implements RootViewSurfaceTaker, Wind
     }
 
     private void updateDecorCaptionStatus(Configuration config) {
-        final boolean displayWindowDecor = config.windowConfiguration.hasWindowDecorCaption()
+        boolean displayWindowDecor = config.windowConfiguration.hasWindowDecorCaption()
                 && !isFillingScreen(config);
+        if (!displayWindowDecor && android.os.SystemProperties.getBoolean(
+                "persist.sys.systemuiplugin.enabled", false)) {
+            displayWindowDecor = true;
+        }
         if (mDecorCaptionView == null && displayWindowDecor) {
             // Configuration now requires a caption.
             final LayoutInflater inflater = mWindow.getLayoutInflater();
