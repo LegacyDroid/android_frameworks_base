@@ -143,7 +143,8 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         mOwner.getDecorView().setOutlineProvider(ViewOutlineProvider.BOUNDS);
         mMaximize = findViewById(R.id.maximize_window);
         mClose = findViewById(R.id.close_window);
-        mMinimize = findViewById(R.id.minimize_window);
+        // Minimize button is the first child of caption (no resource ID to avoid aapt2 cache issues).
+        mMinimize = (mCaption instanceof ViewGroup) ? ((ViewGroup) mCaption).getChildAt(0) : null;
         updateMinimizeButtonIcon();
     }
 
