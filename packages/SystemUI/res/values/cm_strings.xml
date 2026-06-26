@@ -90,6 +90,13 @@
     <!-- Anti flicker QS tile -->
     <string name="quick_settings_anti_flicker">Anti flicker</string>
 
+    <!-- LegacyDex QS tile -->
+    <string name="quick_settings_legacy_dex_label">LegacyDex</string>
+    <string name="accessibility_quick_settings_legacy_dex_off">LegacyDex off.</string>
+    <string name="accessibility_quick_settings_legacy_dex_on">LegacyDex on.</string>
+    <string name="accessibility_quick_settings_legacy_dex_changed_off">LegacyDex turned off.</string>
+    <string name="accessibility_quick_settings_legacy_dex_changed_on">LegacyDex turned on.</string>
+
     <!-- Navigation bar dpad -->
     <string name="accessibility_dpad_left">Cursor left</string>
     <string name="accessibility_dpad_right">Cursor right</string>
