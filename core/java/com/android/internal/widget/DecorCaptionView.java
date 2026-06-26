@@ -144,6 +144,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         mMaximize = findViewById(R.id.maximize_window);
         mClose = findViewById(R.id.close_window);
         mMinimize = findViewById(R.id.minimize_window);
+        updateMinimizeButtonIcon();
     }
 
     @Override
@@ -318,6 +319,19 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         // This assumes that the caption bar is at the top.
         mOwner.notifyRestrictedCaptionAreaCallback(mMinimize.getLeft(), mMinimize.getTop(),
                 mClose.getRight(), mClose.getBottom());
+    }
+
+    private void updateMinimizeButtonIcon() {
+        if (mMinimize == null) return;
+        int color = getResources().getColor(R.color.decor_button_dark_color, getContext().getTheme());
+        android.graphics.drawable.GradientDrawable line = new android.graphics.drawable.GradientDrawable();
+        line.setShape(android.graphics.drawable.GradientDrawable.RECTANGLE);
+        line.setSize(32, 4);
+        line.setColor(color);
+        android.graphics.drawable.LayerDrawable bg = new android.graphics.drawable.LayerDrawable(
+                new android.graphics.drawable.Drawable[]{line});
+        bg.setLayerGravity(0, android.view.Gravity.CENTER);
+        mMinimize.setBackground(bg);
     }
 
     /**
