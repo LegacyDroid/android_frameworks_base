@@ -16,6 +16,7 @@
 
 package com.android.internal.widget;
 
+import android.app.Activity;
 import android.content.Context;
 import android.graphics.Rect;
 import android.os.RemoteException;
@@ -364,14 +365,12 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     }
 
     /**
-     * Minimize the window by moving the task to the back.
+     * Minimize the window by sending it to the back (simulate Home).
      */
     private void minimizeWindow() {
-        try {
-            android.app.ActivityTaskManager.getService().moveTaskToBack(
-                    android.os.Process.myTaskId(), 0);
-        } catch (RemoteException ex) {
-            Log.e(TAG, "Cannot minimize window.");
+        Context ctx = mOwner.getContext();
+        if (ctx instanceof Activity) {
+            ((Activity) ctx).moveTaskToBack(true);
         }
     }
 
