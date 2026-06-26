@@ -30,7 +30,6 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.Window;
 
-import com.android.internal.BoringdroidManager;
 import com.android.internal.R;
 import com.android.internal.policy.DecorView;
 import com.android.internal.policy.PhoneWindow;
@@ -342,7 +341,9 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     private void updateCaptionVisibility() {
         // Keep caption visible in PC mode (desktop) even when maximized,
         // so the user can always un-maximize, minimize, or close.
-        if (BoringdroidManager.IS_SYSTEMUI_PLUGIN_ENABLED) {
+        // Check system property directly — the static field is set once at boot.
+        if (android.os.SystemProperties.getBoolean(
+                "persist.sys.systemuiplugin.enabled", false)) {
             mCaption.setVisibility(VISIBLE);
         } else {
             mCaption.setVisibility(mShow ? VISIBLE : GONE);
