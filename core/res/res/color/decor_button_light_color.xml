@@ -15,6 +15,6 @@
 -->
 
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_window_focused="true" android:color="#FFFFFFFF" />
-    <item android:color="#33FFFFFF" />
+    <item android:state_window_focused="true" android:color="#FF30C548" />
+    <item android:color="#3330C548" />
 </selector>

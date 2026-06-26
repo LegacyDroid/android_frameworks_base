@@ -29,6 +29,7 @@ import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
 import android.view.Window;
 
+import com.android.internal.BoringdroidManager;
 import com.android.internal.R;
 import com.android.internal.policy.DecorView;
 import com.android.internal.policy.PhoneWindow;
@@ -85,6 +86,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     private View mContent;
     private View mMaximize;
     private View mClose;
+    private View mMinimize;
 
     // Fields for detecting drag events.
     private int mTouchDownX;
@@ -92,13 +94,14 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
     private boolean mCheckForDragging;
     private int mDragSlop;
 
-    // Fields for detecting and intercepting click events on close/maximize.
-    private ArrayList<View> mTouchDispatchList = new ArrayList<>(2);
-    // We use the gesture detector to detect clicks on close/maximize buttons and to be consistent
-    // with existing click detection.
+    // Fields for detecting and intercepting click events on close/maximize/minimize.
+    private ArrayList<View> mTouchDispatchList = new ArrayList<>(3);
+    // We use the gesture detector to detect clicks on close/maximize/minimize buttons and to be
+    // consistent with existing click detection.
     private GestureDetector mGestureDetector;
     private final Rect mCloseRect = new Rect();
     private final Rect mMaximizeRect = new Rect();
+    private final Rect mMinimizeRect = new Rect();
     private View mClickTarget;
     private int mRootScrollY;
 
@@ -140,6 +143,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         mOwner.getDecorView().setOutlineProvider(ViewOutlineProvider.BOUNDS);
         mMaximize = findViewById(R.id.maximize_window);
         mClose = findViewById(R.id.close_window);
+        mMinimize = findViewById(R.id.minimize_window);
     }
 
     @Override
@@ -150,10 +154,11 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
             final int x = (int) ev.getX();
             final int y = (int) ev.getY();
             // Only offset y for containment tests because the actual views are already translated.
-            if (mMaximizeRect.contains(x, y - mRootScrollY)) {
+            if (mMinimizeRect.contains(x, y - mRootScrollY)) {
+                mClickTarget = mMinimize;
+            } else if (mMaximizeRect.contains(x, y - mRootScrollY)) {
                 mClickTarget = mMaximize;
-            }
-            if (mCloseRect.contains(x, y - mRootScrollY)) {
+            } else if (mCloseRect.contains(x, y - mRootScrollY)) {
                 mClickTarget = mClose;
             }
         }
@@ -289,10 +294,12 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         if (mCaption.getVisibility() != View.GONE) {
             mCaption.layout(0, 0, mCaption.getMeasuredWidth(), mCaption.getMeasuredHeight());
             captionHeight = mCaption.getBottom() - mCaption.getTop();
+            mMinimize.getHitRect(mMinimizeRect);
             mMaximize.getHitRect(mMaximizeRect);
             mClose.getHitRect(mCloseRect);
         } else {
             captionHeight = 0;
+            mMinimizeRect.setEmpty();
             mMaximizeRect.setEmpty();
             mCloseRect.setEmpty();
         }
@@ -309,7 +316,7 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
         ((DecorView) mOwner.getDecorView()).notifyCaptionHeightChanged();
 
         // This assumes that the caption bar is at the top.
-        mOwner.notifyRestrictedCaptionAreaCallback(mMaximize.getLeft(), mMaximize.getTop(),
+        mOwner.notifyRestrictedCaptionAreaCallback(mMinimize.getLeft(), mMinimize.getTop(),
                 mClose.getRight(), mClose.getBottom());
     }
 
@@ -317,7 +324,13 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
      * Updates the visibility of the caption.
      **/
     private void updateCaptionVisibility() {
-        mCaption.setVisibility(mShow ? VISIBLE : GONE);
+        // Keep caption visible in PC mode (desktop) even when maximized,
+        // so the user can always un-maximize, minimize, or close.
+        if (BoringdroidManager.IS_SYSTEMUI_PLUGIN_ENABLED) {
+            mCaption.setVisibility(VISIBLE);
+        } else {
+            mCaption.setVisibility(mShow ? VISIBLE : GONE);
+        }
         mCaption.setOnTouchListener(this);
     }
 
@@ -332,6 +345,18 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
             } catch (RemoteException ex) {
                 Log.e(TAG, "Cannot change task workspace.");
             }
+        }
+    }
+
+    /**
+     * Minimize the window by moving the task to the back.
+     */
+    private void minimizeWindow() {
+        try {
+            android.app.ActivityTaskManager.getService().moveTaskToBack(
+                    android.os.Process.myTaskId(), 0);
+        } catch (RemoteException ex) {
+            Log.e(TAG, "Cannot minimize window.");
         }
     }
 
@@ -387,7 +412,9 @@ public class DecorCaptionView extends ViewGroup implements View.OnTouchListener,
 
     @Override
     public boolean onSingleTapUp(MotionEvent e) {
-        if (mClickTarget == mMaximize) {
+        if (mClickTarget == mMinimize) {
+            minimizeWindow();
+        } else if (mClickTarget == mMaximize) {
             toggleFreeformWindowingMode();
         } else if (mClickTarget == mClose) {
             mOwner.dispatchOnWindowDismissed(
