@@ -48,6 +48,7 @@ import android.annotation.Nullable;
 import android.app.ActivityManager;
 import android.app.ActivityTaskManager;
 import android.app.IActivityTaskManager;
+import android.app.WindowConfiguration;
 import android.app.StatusBarManager;
 import android.content.BroadcastReceiver;
 import android.content.ContentResolver;
@@ -56,11 +57,19 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.inputmethodservice.InputMethodService;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
+import android.os.SystemProperties;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -72,12 +81,17 @@ import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.InsetsState.InternalInsetsType;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
+import android.view.InputDevice;
+import android.view.InputEvent;
+import android.view.InputManager;
+import android.view.KeyCharacterMap;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsetsController.Appearance;
@@ -841,6 +855,151 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
         updateAccessibilityServicesState(mAccessibilityManager);
 
         updateScreenPinningGestures();
+
+        setupDesktopModeControls();
+    }
+
+    private void setupDesktopModeControls() {
+        if (!SystemProperties.getBoolean("persist.sys.systemuiplugin.enabled", false)) return;
+
+        ButtonDispatcher backButton = mNavigationBarView.getBackButton();
+        ButtonDispatcher homeButton = mNavigationBarView.getHomeButton();
+        ButtonDispatcher recentsButton = mNavigationBarView.getRecentsButton();
+
+        backButton.setImageDrawable(createMinimizeDrawable(0xFFFFFFFF));
+        homeButton.setImageDrawable(createMaximizeDrawable(0xFFFFFFFF));
+        recentsButton.setImageDrawable(createCloseDrawable(0xFFFFFFFF));
+
+        backButton.setOnTouchListener(this::onDesktopBackTouch);
+        homeButton.setOnTouchListener(this::onDesktopHomeTouch);
+        recentsButton.setOnTouchListener(this::onDesktopRecentsTouch);
+    }
+
+    private boolean onDesktopBackTouch(View v, MotionEvent event) {
+        return interceptDesktopTouch(event, () -> minimizeFocusedTask(), v);
+    }
+
+    private boolean onDesktopHomeTouch(View v, MotionEvent event) {
+        return interceptDesktopTouch(event, () -> toggleMaximizeFocusedTask(), v);
+    }
+
+    private boolean onDesktopRecentsTouch(View v, MotionEvent event) {
+        return interceptDesktopTouch(event, () -> closeFocusedTask(), v);
+    }
+
+    private boolean interceptDesktopTouch(MotionEvent event, Runnable action, View v) {
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+                v.setPressed(true);
+                return true;
+            case MotionEvent.ACTION_UP:
+                v.setPressed(false);
+                v.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY);
+                action.run();
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                v.setPressed(false);
+                return true;
+        }
+        return false;
+    }
+
+    private int getFocusedTaskId() {
+        try {
+            ActivityManager.StackInfo info = ActivityTaskManager.getService().getFocusedStackInfo();
+            if (info != null && info.taskIds != null && info.taskIds.length > 0) {
+                return info.taskIds[info.taskIds.length - 1];
+            }
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot get focused stack info", e);
+        }
+        return -1;
+    }
+
+    private void minimizeFocusedTask() {
+        // Inject HOME key to show desktop — equivalent to "minimize" in desktop metaphor.
+        injectKeyEvent(KeyEvent.KEYCODE_HOME);
+    }
+
+    private void toggleMaximizeFocusedTask() {
+        int taskId = getFocusedTaskId();
+        if (taskId < 0) return;
+        try {
+            ActivityManager.StackInfo info = ActivityTaskManager.getService().getFocusedStackInfo();
+            if (info == null) return;
+            int wm = info.configuration.windowConfiguration.getWindowingMode();
+            if (wm == WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
+                ActivityTaskManager.getService().setTaskWindowingMode(taskId,
+                        WindowConfiguration.WINDOWING_MODE_FREEFORM, false);
+            } else {
+                ActivityTaskManager.getService().setTaskWindowingMode(taskId,
+                        WindowConfiguration.WINDOWING_MODE_FULLSCREEN, false);
+            }
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot toggle windowing mode", e);
+        }
+    }
+
+    private void closeFocusedTask() {
+        int taskId = getFocusedTaskId();
+        if (taskId < 0) return;
+        try {
+            ActivityTaskManager.getService().removeTask(taskId);
+        } catch (RemoteException e) {
+            Log.w(TAG, "Cannot remove task", e);
+        }
+    }
+
+    private void injectKeyEvent(int keyCode) {
+        InputManager im = getContext().getSystemService(InputManager.class);
+        if (im == null) return;
+        long now = android.os.SystemClock.uptimeMillis();
+        KeyEvent down = new KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
+        KeyEvent up = new KeyEvent(now, now, KeyEvent.ACTION_UP, keyCode, 0, 0,
+                KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
+        im.injectInputEvent(down, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+        im.injectInputEvent(up, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+    }
+
+    private Drawable createMinimizeDrawable(int color) {
+        GradientDrawable line = new GradientDrawable();
+        line.setShape(GradientDrawable.RECTANGLE);
+        line.setSize(24, 3);
+        line.setColor(color);
+        LayerDrawable bg = new LayerDrawable(new Drawable[] { line });
+        bg.setLayerGravity(0, Gravity.CENTER);
+        return bg;
+    }
+
+    private Drawable createMaximizeDrawable(int color) {
+        GradientDrawable outline = new GradientDrawable();
+        outline.setShape(GradientDrawable.RECTANGLE);
+        outline.setSize(18, 18);
+        outline.setStroke(3, color);
+        LayerDrawable bg = new LayerDrawable(new Drawable[] { outline });
+        bg.setLayerGravity(0, Gravity.CENTER);
+        return bg;
+    }
+
+    private Drawable createCloseDrawable(int color) {
+        Bitmap bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint();
+        paint.setColor(color);
+        paint.setStrokeWidth(3);
+        paint.setAntiAlias(true);
+        float cx = 16;
+        float half = 10;
+        canvas.save();
+        canvas.rotate(45, cx, cx);
+        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
+        canvas.restore();
+        canvas.save();
+        canvas.rotate(-45, cx, cx);
+        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
+        canvas.restore();
+        return new BitmapDrawable(getContext().getResources(), bitmap);
     }
 
     private boolean onHomeTouch(View v, MotionEvent event) {
