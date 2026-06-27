@@ -680,16 +680,21 @@ public class NavigationBarView extends FrameLayout implements
         // to recent icon is not required.
         final boolean useAltBack =
                 (mNavigationIconHints & StatusBarManager.NAVIGATION_HINT_BACK_ALT) != 0;
-        KeyButtonDrawable backIcon = mBackIcon;
-        orientBackButton(backIcon);
-        KeyButtonDrawable homeIcon = mHomeDefaultIcon;
-        if (!mUseCarModeUi) {
-            orientHomeButton(homeIcon);
-        }
-        getHomeButton().setImageDrawable(homeIcon);
-        getBackButton().setImageDrawable(backIcon);
+        // In desktop/PC mode, icons are managed by NavigationBarFragment — skip overwrite.
+        final boolean isDesktopMode = android.os.SystemProperties.getBoolean(
+                "persist.sys.systemuiplugin.enabled", false);
+        if (!isDesktopMode) {
+            KeyButtonDrawable backIcon = mBackIcon;
+            orientBackButton(backIcon);
+            KeyButtonDrawable homeIcon = mHomeDefaultIcon;
+            if (!mUseCarModeUi) {
+                orientHomeButton(homeIcon);
+            }
+            getHomeButton().setImageDrawable(homeIcon);
+            getBackButton().setImageDrawable(backIcon);
 
-        updateRecentsIcon();
+            updateRecentsIcon();
+        }
 
         boolean showCursorKeys = mShowCursorKeys
                 && (mNavigationIconHints & StatusBarManager.NAVIGATION_HINT_BACK_ALT) != 0;
