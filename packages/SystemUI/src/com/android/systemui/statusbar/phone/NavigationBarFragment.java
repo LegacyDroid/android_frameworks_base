@@ -57,14 +57,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
-import android.graphics.Bitmap;
-import android.graphics.Canvas;
-import android.graphics.Paint;
 import android.graphics.PixelFormat;
-import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
-import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.LayerDrawable;
 import android.inputmethodservice.InputMethodService;
 import android.net.Uri;
 import android.os.Binder;
@@ -81,17 +74,15 @@ import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.Display;
-import android.view.Gravity;
 import android.view.InsetsState.InternalInsetsType;
+import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
+import android.view.InputDevice;
 import android.view.Surface;
 import android.view.View;
-import android.view.InputDevice;
-import android.view.InputEvent;
-import android.view.InputManager;
-import android.view.KeyCharacterMap;
+import android.hardware.input.InputManager;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.WindowInsetsController.Appearance;
@@ -866,10 +857,6 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
         ButtonDispatcher homeButton = mNavigationBarView.getHomeButton();
         ButtonDispatcher recentsButton = mNavigationBarView.getRecentsButton();
 
-        backButton.setImageDrawable(createMinimizeDrawable(0xFFFFFFFF));
-        homeButton.setImageDrawable(createMaximizeDrawable(0xFFFFFFFF));
-        recentsButton.setImageDrawable(createCloseDrawable(0xFFFFFFFF));
-
         backButton.setOnTouchListener(this::onDesktopBackTouch);
         homeButton.setOnTouchListener(this::onDesktopHomeTouch);
         recentsButton.setOnTouchListener(this::onDesktopRecentsTouch);
@@ -960,46 +947,6 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
                 KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0, InputDevice.SOURCE_KEYBOARD);
         im.injectInputEvent(down, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
         im.injectInputEvent(up, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
-    }
-
-    private Drawable createMinimizeDrawable(int color) {
-        GradientDrawable line = new GradientDrawable();
-        line.setShape(GradientDrawable.RECTANGLE);
-        line.setSize(24, 3);
-        line.setColor(color);
-        LayerDrawable bg = new LayerDrawable(new Drawable[] { line });
-        bg.setLayerGravity(0, Gravity.CENTER);
-        return bg;
-    }
-
-    private Drawable createMaximizeDrawable(int color) {
-        GradientDrawable outline = new GradientDrawable();
-        outline.setShape(GradientDrawable.RECTANGLE);
-        outline.setSize(18, 18);
-        outline.setStroke(3, color);
-        LayerDrawable bg = new LayerDrawable(new Drawable[] { outline });
-        bg.setLayerGravity(0, Gravity.CENTER);
-        return bg;
-    }
-
-    private Drawable createCloseDrawable(int color) {
-        Bitmap bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        Paint paint = new Paint();
-        paint.setColor(color);
-        paint.setStrokeWidth(3);
-        paint.setAntiAlias(true);
-        float cx = 16;
-        float half = 10;
-        canvas.save();
-        canvas.rotate(45, cx, cx);
-        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
-        canvas.restore();
-        canvas.save();
-        canvas.rotate(-45, cx, cx);
-        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
-        canvas.restore();
-        return new BitmapDrawable(getContext().getResources(), bitmap);
     }
 
     private boolean onHomeTouch(View v, MotionEvent event) {
