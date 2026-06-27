@@ -57,12 +57,20 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.res.Configuration;
 import android.database.ContentObserver;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.inputmethodservice.InputMethodService;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Bundle;
 import android.os.SystemProperties;
+import android.content.res.Resources;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
@@ -73,7 +81,9 @@ import android.provider.Settings;
 import android.telecom.TelecomManager;
 import android.text.TextUtils;
 import android.util.Log;
+import android.view.ContextThemeWrapper;
 import android.view.Display;
+import android.view.Gravity;
 import android.view.InsetsState.InternalInsetsType;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
@@ -102,6 +112,8 @@ import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.util.LatencyTracker;
 import com.android.internal.view.AppearanceRegion;
 import com.android.systemui.R;
+import com.android.systemui.statusbar.policy.KeyButtonDrawable;
+import com.android.settingslib.Utils;
 import com.android.systemui.accessibility.SystemActions;
 import com.android.systemui.assist.AssistHandleViewController;
 import com.android.systemui.assist.AssistManager;
@@ -857,9 +869,72 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
         ButtonDispatcher homeButton = mNavigationBarView.getHomeButton();
         ButtonDispatcher recentsButton = mNavigationBarView.getRecentsButton();
 
+        backButton.setImageDrawable(createDesktopKeyButtonDrawable(createMinimizeIcon()));
+        homeButton.setImageDrawable(createDesktopKeyButtonDrawable(createMaximizeIcon()));
+        recentsButton.setImageDrawable(createDesktopKeyButtonDrawable(createCloseIcon()));
+
         backButton.setOnTouchListener(this::onDesktopBackTouch);
         homeButton.setOnTouchListener(this::onDesktopHomeTouch);
         recentsButton.setOnTouchListener(this::onDesktopRecentsTouch);
+    }
+
+    private KeyButtonDrawable createDesktopKeyButtonDrawable(Drawable icon) {
+        final Context ctx = getContext();
+        final int lightTheme = Utils.getThemeAttr(ctx, R.attr.lightIconTheme);
+        final int darkTheme = Utils.getThemeAttr(ctx, R.attr.darkIconTheme);
+        Context lightCtx = new ContextThemeWrapper(ctx, lightTheme);
+        Context darkCtx = new ContextThemeWrapper(ctx, darkTheme);
+        int lightColor = Utils.getColorAttrDefaultColor(lightCtx, R.attr.singleToneColor);
+        int darkColor = Utils.getColorAttrDefaultColor(darkCtx, R.attr.singleToneColor);
+        KeyButtonDrawable kbd = new KeyButtonDrawable(icon, lightColor, darkColor, false,
+                null /* ovalBackgroundColor */);
+        Resources res = ctx.getResources();
+        int offsetX = res.getDimensionPixelSize(R.dimen.nav_key_button_shadow_offset_x);
+        int offsetY = res.getDimensionPixelSize(R.dimen.nav_key_button_shadow_offset_y);
+        int radius = res.getDimensionPixelSize(R.dimen.nav_key_button_shadow_radius);
+        int shadowColor = res.getColor(R.color.nav_key_button_shadow_color);
+        kbd.setShadowProperties(offsetX, offsetY, radius, shadowColor);
+        return kbd;
+    }
+
+    private Drawable createMinimizeIcon() {
+        GradientDrawable line = new GradientDrawable();
+        line.setShape(GradientDrawable.RECTANGLE);
+        line.setSize(24, 3);
+        line.setColor(0xFFFFFFFF);
+        LayerDrawable bg = new LayerDrawable(new Drawable[] { line });
+        bg.setLayerGravity(0, Gravity.CENTER);
+        return bg;
+    }
+
+    private Drawable createMaximizeIcon() {
+        GradientDrawable outline = new GradientDrawable();
+        outline.setShape(GradientDrawable.RECTANGLE);
+        outline.setSize(18, 18);
+        outline.setStroke(3, 0xFFFFFFFF);
+        LayerDrawable bg = new LayerDrawable(new Drawable[] { outline });
+        bg.setLayerGravity(0, Gravity.CENTER);
+        return bg;
+    }
+
+    private Drawable createCloseIcon() {
+        Bitmap bitmap = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        Paint paint = new Paint();
+        paint.setColor(0xFFFFFFFF);
+        paint.setStrokeWidth(3);
+        paint.setAntiAlias(true);
+        float cx = 16;
+        float half = 10;
+        canvas.save();
+        canvas.rotate(45, cx, cx);
+        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
+        canvas.restore();
+        canvas.save();
+        canvas.rotate(-45, cx, cx);
+        canvas.drawLine(cx - half, cx, cx + half, cx, paint);
+        canvas.restore();
+        return new BitmapDrawable(getContext().getResources(), bitmap);
     }
 
     private boolean onDesktopBackTouch(View v, MotionEvent event) {
