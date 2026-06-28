@@ -989,6 +989,10 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
         try {
             ActivityManager.StackInfo info = ActivityTaskManager.getService().getFocusedStackInfo();
             if (info == null) return;
+            if (info.configuration.windowConfiguration.getActivityType()
+                    != WindowConfiguration.ACTIVITY_TYPE_STANDARD) {
+                return;
+            }
             int wm = info.configuration.windowConfiguration.getWindowingMode();
             if (wm == WindowConfiguration.WINDOWING_MODE_FULLSCREEN) {
                 ActivityTaskManager.getService().setTaskWindowingMode(taskId,
@@ -1006,6 +1010,12 @@ public class NavigationBarFragment extends LifecycleFragment implements Callback
         int taskId = getFocusedTaskId();
         if (taskId < 0) return;
         try {
+            ActivityManager.StackInfo info = ActivityTaskManager.getService().getFocusedStackInfo();
+            if (info == null) return;
+            if (info.configuration.windowConfiguration.getActivityType()
+                    != WindowConfiguration.ACTIVITY_TYPE_STANDARD) {
+                return;
+            }
             ActivityTaskManager.getService().removeTask(taskId);
         } catch (RemoteException e) {
             Log.w(TAG, "Cannot remove task", e);
