@@ -52,7 +52,7 @@ public class BoringdroidManager {
     }
 
     public static boolean isPCModeEnabled() {
-        return SystemProperties.getBoolean("persist.sys.pcmode.enabled", true);
+        return SystemProperties.getBoolean("persist.sys.pcmode.enabled", false);
     }
 
     private static boolean isInPCModeDisallowedList(String packageName) {
