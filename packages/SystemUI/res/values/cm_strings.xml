@@ -97,6 +97,11 @@
     <string name="accessibility_quick_settings_legacy_dex_changed_off">LegacyDex turned off.</string>
     <string name="accessibility_quick_settings_legacy_dex_changed_on">LegacyDex turned on.</string>
 
+    <!-- LegacyDex warning dialog -->
+    <string name="legacy_dex_warning_title">LegacyDex Warning</string>
+    <string name="legacy_dex_warning_message">WARNING: LegacyDex is under development and still NOT yet stable, use at your own risk</string>
+    <string name="legacy_dex_warning_accept">I Understand</string>
+
     <!-- Navigation bar dpad -->
     <string name="accessibility_dpad_left">Cursor left</string>
     <string name="accessibility_dpad_right">Cursor right</string>

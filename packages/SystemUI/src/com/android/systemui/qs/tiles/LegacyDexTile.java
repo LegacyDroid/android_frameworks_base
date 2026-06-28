@@ -1,5 +1,7 @@
 package com.android.systemui.qs.tiles;
 
+import android.app.AlertDialog;
+import android.app.Dialog;
 import android.content.Intent;
 import android.os.Process;
 import android.os.RemoteException;
@@ -9,6 +11,7 @@ import android.provider.Settings;
 import android.service.quicksettings.Tile;
 import android.view.IWindowManager;
 import android.view.Surface;
+import android.view.WindowManager;
 
 import com.android.internal.BoringdroidManager;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
@@ -36,6 +39,26 @@ public class LegacyDexTile extends QSTileImpl<BooleanState> {
     @Override
     protected void handleClick() {
         boolean enabled = !BoringdroidManager.isPCModeEnabled();
+        if (enabled) {
+            showWarningDialog();
+        } else {
+            doSetEnabled(false);
+        }
+    }
+
+    private void showWarningDialog() {
+        Dialog dialog = new AlertDialog.Builder(mContext)
+                .setTitle(R.string.legacy_dex_warning_title)
+                .setMessage(R.string.legacy_dex_warning_message)
+                .setPositiveButton(R.string.legacy_dex_warning_accept,
+                        (d, which) -> doSetEnabled(true))
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG);
+        mUiHandler.post(() -> dialog.show());
+    }
+
+    private void doSetEnabled(boolean enabled) {
         SystemProperties.set("persist.sys.pcmode.enabled", enabled ? "true" : "false");
         SystemProperties.set("persist.sys.systemuiplugin.enabled", enabled ? "true" : "false");
         IWindowManager wm = IWindowManager.Stub.asInterface(
