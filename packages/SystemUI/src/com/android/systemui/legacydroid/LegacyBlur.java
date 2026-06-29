@@ -21,7 +21,12 @@ public class LegacyBlur {
     private static final String PROP_ENABLED = "persist.sys.legacyblur.enabled";
     private static final String PROP_RADIUS = "persist.sys.legacyblur.radius";
     private static final String PROP_BACKEND = "persist.sys.legacyblur.backend";
-    private static final float SCALE = 0.125f;
+    private static final String PROP_SCALE = "persist.sys.legacyblur.scale";
+
+    private static float getScale() {
+        int d = SystemProperties.getInt(PROP_SCALE, 8);
+        return 1.0f / Math.max(d, 1);
+    }
 
     private static Bitmap sScreenshot;
     private static Bitmap sScaled;
@@ -115,8 +120,9 @@ public class LegacyBlur {
             if (sScreenshot == null) return;
             sBlurActive = true;
 
-            int sw = Math.round(sScreenshot.getWidth() * SCALE);
-            int sh = Math.round(sScreenshot.getHeight() * SCALE);
+            float scale = getScale();
+            int sw = Math.round(sScreenshot.getWidth() * scale);
+            int sh = Math.round(sScreenshot.getHeight() * scale);
             sScaled = Bitmap.createScaledBitmap(sScreenshot, sw, sh, true);
         } catch (Exception e) {
             Log.e(TAG, "Screenshot capture failed", e);
