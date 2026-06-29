@@ -427,21 +427,9 @@ public class NotificationShadeWindowViewController {
         mDepthController.setRoot(mView);
         mNotificationPanelViewController.addExpansionListener(mDepthController);
 
-        LegacyBlur.register(mView.getContext());
-        mNotificationPanelViewController.addExpansionListener(new PanelExpansionListener() {
-            private boolean mBlurApplied;
-
-            @Override
-            public void onPanelExpansionChanged(float expansion, boolean tracking) {
-                if (expansion > 0.01f && !mBlurApplied) {
-                    LegacyBlur.apply(mView, mView.getContext());
-                    mBlurApplied = true;
-                } else if (expansion < 0.01f && mBlurApplied) {
-                    LegacyBlur.clear(mView);
-                    mBlurApplied = false;
-                }
-            }
-        });
+        mNotificationPanelViewController.addExpansionListener(
+                (expansion, tracking) -> LegacyBlur.onPanelExpansionChanged(
+                        mView, mView.getContext(), expansion, tracking));
     }
 
     public NotificationShadeWindowView getView() {

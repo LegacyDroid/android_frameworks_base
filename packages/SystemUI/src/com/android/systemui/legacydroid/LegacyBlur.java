@@ -1,123 +1,127 @@
 package com.android.systemui.legacydroid;
 
-import android.app.WallpaperManager;
-import android.content.BroadcastReceiver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.IntentFilter;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
-import android.graphics.drawable.Drawable;
+import android.hardware.display.DisplayManager;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
 import android.renderscript.ScriptIntrinsicBlur;
 import android.util.Log;
+import android.view.Display;
+import android.view.SurfaceControl;
 import android.view.View;
 
 public class LegacyBlur {
     private static final String TAG = "LegacyBlur";
-    private static final float BLUR_RADIUS = 25f;
-    private static final float SCALE_DOWN = 0.25f;
+    private static final float MAX_BLUR = 25f;
+    private static final float SCALE = 0.125f;
 
-    private static Bitmap sBlurredWallpaper;
-    private static boolean sReceiverRegistered;
+    private static Bitmap sScreenshot;
+    private static Bitmap sScaled;
+    private static RenderScript sRS;
+    private static ScriptIntrinsicBlur sBlurScript;
+    private static Allocation sInputAlloc;
+    private static Allocation sOutputAlloc;
+    private static Bitmap sBlurredSmall;
 
-    private static final BroadcastReceiver sWallpaperReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            invalidateCache();
+    private static Bitmap sOutputBmp;
+    private static Canvas sOutputCanvas;
+    private static BitmapDrawable sOutputDrawable;
+
+    public static void onPanelExpansionChanged(View target, Context ctx,
+                                                float expansion, boolean tracking) {
+        if (target == null || ctx == null) return;
+
+        if (expansion < 0.01f && !tracking) {
+            clear(target);
+            release();
+            return;
         }
-    };
 
-    public static void register(Context context) {
-        if (sReceiverRegistered) return;
-        IntentFilter filter = new IntentFilter(Intent.ACTION_WALLPAPER_CHANGED);
-        context.registerReceiver(sWallpaperReceiver, filter);
-        sReceiverRegistered = true;
-    }
+        if (tracking && !hasScreenshot()) {
+            capture(ctx);
+        }
 
-    public static void unregister(Context context) {
-        if (!sReceiverRegistered) return;
+        if (sScaled == null || sScaled.isRecycled()) return;
+
+        float radius = Math.max(1f, expansion * MAX_BLUR);
+
         try {
-            context.unregisterReceiver(sWallpaperReceiver);
-        } catch (IllegalArgumentException e) {
-            // not registered
+            if (sRS == null) {
+                sRS = RenderScript.create(ctx);
+                sBlurScript = ScriptIntrinsicBlur.create(sRS, Element.U8_4(sRS));
+                sInputAlloc = Allocation.createFromBitmap(sRS, sScaled);
+                sOutputAlloc = Allocation.createTyped(sRS, sInputAlloc.getType());
+                sBlurredSmall = Bitmap.createBitmap(
+                        sScaled.getWidth(), sScaled.getHeight(), sScaled.getConfig());
+            }
+
+            sInputAlloc.copyFrom(sScaled);
+            sBlurScript.setRadius(radius);
+            sBlurScript.setInput(sInputAlloc);
+            sBlurScript.forEach(sOutputAlloc);
+            sOutputAlloc.copyTo(sBlurredSmall);
+
+            int tw = target.getWidth();
+            int th = target.getHeight();
+            if (tw <= 0) tw = ctx.getResources().getDisplayMetrics().widthPixels;
+            if (th <= 0) th = ctx.getResources().getDisplayMetrics().heightPixels;
+
+            if (sOutputBmp == null || sOutputBmp.getWidth() != tw
+                    || sOutputBmp.getHeight() != th) {
+                sOutputBmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888);
+                sOutputCanvas = new Canvas(sOutputBmp);
+                sOutputDrawable = new BitmapDrawable(ctx.getResources(), sOutputBmp);
+            }
+
+            sOutputCanvas.drawBitmap(sBlurredSmall, null,
+                    new Rect(0, 0, tw, th), null);
+            target.setBackground(sOutputDrawable);
+        } catch (Exception e) {
+            Log.e(TAG, "Blur frame failed", e);
         }
-        sReceiverRegistered = false;
     }
 
-    public static void apply(View target, Context context) {
-        if (target == null || context == null) return;
-        if (sBlurredWallpaper == null || sBlurredWallpaper.isRecycled()) {
-            generateBlur(target, context);
-        }
-        if (sBlurredWallpaper != null && !sBlurredWallpaper.isRecycled()) {
-            target.setBackground(new BitmapDrawable(context.getResources(), sBlurredWallpaper));
+    private static boolean hasScreenshot() {
+        return sScreenshot != null && !sScreenshot.isRecycled();
+    }
+
+    private static void capture(Context ctx) {
+        try {
+            Display display = ctx.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
+            int rotation = display.getRotation();
+            Bitmap bmp = SurfaceControl.screenshot(
+                    new Rect(), ctx.getResources().getDisplayMetrics().widthPixels,
+                    ctx.getResources().getDisplayMetrics().heightPixels, rotation);
+            if (bmp == null) return;
+
+            sScreenshot = bmp;
+            int sw = Math.round(sScreenshot.getWidth() * SCALE);
+            int sh = Math.round(sScreenshot.getHeight() * SCALE);
+            sScaled = Bitmap.createScaledBitmap(sScreenshot, sw, sh, true);
+        } catch (Exception e) {
+            Log.e(TAG, "Screenshot capture failed", e);
         }
     }
 
     public static void clear(View target) {
-        if (target != null) {
-            target.setBackground(null);
-        }
+        if (target != null) target.setBackground(null);
     }
 
-    public static void invalidateCache() {
-        sBlurredWallpaper = null;
-    }
-
-    private static void generateBlur(View target, Context context) {
-        WallpaperManager wm = WallpaperManager.getInstance(context);
-        Drawable wallpaperDrawable = wm.getDrawable();
-        if (wallpaperDrawable == null) return;
-
-        int targetW = target.getWidth();
-        int targetH = target.getHeight();
-        if (targetW <= 0 || targetH <= 0) {
-            targetW = context.getResources().getDisplayMetrics().widthPixels;
-            targetH = context.getResources().getDisplayMetrics().heightPixels;
-        }
-
-        Bitmap wallpaper = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(wallpaper);
-        wallpaperDrawable.setBounds(0, 0, targetW, targetH);
-        wallpaperDrawable.draw(canvas);
-
-        int smallW = Math.round(targetW * SCALE_DOWN);
-        int smallH = Math.round(targetH * SCALE_DOWN);
-        Bitmap scaled = Bitmap.createScaledBitmap(wallpaper, smallW, smallH, true);
-        wallpaper.recycle();
-
-        Bitmap blurredSmall = blur(context, scaled, BLUR_RADIUS);
-        scaled.recycle();
-
-        sBlurredWallpaper = Bitmap.createScaledBitmap(blurredSmall, targetW, targetH, true);
-        if (blurredSmall != sBlurredWallpaper) {
-            blurredSmall.recycle();
-        }
-    }
-
-    private static Bitmap blur(Context context, Bitmap input, float radius) {
-        RenderScript rs = null;
-        try {
-            rs = RenderScript.create(context);
-            Allocation inputAlloc = Allocation.createFromBitmap(rs, input);
-            Allocation outputAlloc = Allocation.createTyped(rs, inputAlloc.getType());
-            ScriptIntrinsicBlur script = ScriptIntrinsicBlur.create(rs, Element.U8_4(rs));
-            script.setRadius(Math.min(radius, 25f));
-            script.setInput(inputAlloc);
-            script.forEach(outputAlloc);
-            Bitmap output = Bitmap.createBitmap(input.getWidth(), input.getHeight(),
-                    input.getConfig());
-            outputAlloc.copyTo(output);
-            return output;
-        } catch (Exception e) {
-            Log.e(TAG, "RenderScript blur failed", e);
-            return input;
-        } finally {
-            if (rs != null) rs.destroy();
-        }
+    private static void release() {
+        if (sBlurScript != null) { sBlurScript.destroy(); sBlurScript = null; }
+        if (sInputAlloc != null) { sInputAlloc.destroy(); sInputAlloc = null; }
+        if (sOutputAlloc != null) { sOutputAlloc.destroy(); sOutputAlloc = null; }
+        if (sRS != null) { sRS.destroy(); sRS = null; }
+        if (sBlurredSmall != null) { sBlurredSmall.recycle(); sBlurredSmall = null; }
+        if (sScaled != null) { sScaled.recycle(); sScaled = null; }
+        if (sScreenshot != null) { sScreenshot.recycle(); sScreenshot = null; }
+        sOutputBmp = null;
+        sOutputCanvas = null;
+        sOutputDrawable = null;
     }
 }
