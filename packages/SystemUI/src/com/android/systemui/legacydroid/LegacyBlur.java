@@ -6,6 +6,7 @@ import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.hardware.display.DisplayManager;
+import android.os.SystemProperties;
 import android.renderscript.Allocation;
 import android.renderscript.Element;
 import android.renderscript.RenderScript;
@@ -17,7 +18,9 @@ import android.view.View;
 
 public class LegacyBlur {
     private static final String TAG = "LegacyBlur";
-    private static final float MAX_BLUR = 25f;
+    private static final String PROP_ENABLED = "persist.sys.legacyblur.enabled";
+    private static final String PROP_RADIUS = "persist.sys.legacyblur.radius";
+    private static final String PROP_BACKEND = "persist.sys.legacyblur.backend";
     private static final float SCALE = 0.125f;
 
     private static Bitmap sScreenshot;
@@ -37,6 +40,11 @@ public class LegacyBlur {
                                                 float expansion, boolean tracking) {
         if (target == null || ctx == null) return;
 
+        if (!SystemProperties.getBoolean(PROP_ENABLED, true)) {
+            sBlurActive = false;
+            return;
+        }
+
         if (expansion < 0.01f && !tracking) {
             clear(target);
             release();
@@ -49,7 +57,8 @@ public class LegacyBlur {
 
         if (sScaled == null || sScaled.isRecycled()) return;
 
-        float radius = Math.max(1f, expansion * MAX_BLUR);
+        float maxRadius = Math.min(SystemProperties.getInt(PROP_RADIUS, 25), 25);
+        float radius = Math.max(1f, expansion * maxRadius);
 
         try {
             if (sRS == null) {
