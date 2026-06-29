@@ -56,6 +56,8 @@ import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.tuner.TunerService;
 import com.android.systemui.util.InjectionInflationController;
 
+import com.android.systemui.legacydroid.LegacyBlur;
+
 import lineageos.providers.LineageSettings;
 
 import java.io.FileDescriptor;
@@ -424,6 +426,22 @@ public class NotificationShadeWindowViewController {
 
         mDepthController.setRoot(mView);
         mNotificationPanelViewController.addExpansionListener(mDepthController);
+
+        LegacyBlur.register(mView.getContext());
+        mNotificationPanelViewController.addExpansionListener(new PanelExpansionListener() {
+            private boolean mBlurApplied;
+
+            @Override
+            public void onPanelExpansionChanged(float expansion, boolean tracking) {
+                if (expansion > 0.01f && !mBlurApplied) {
+                    LegacyBlur.apply(mView, mView.getContext());
+                    mBlurApplied = true;
+                } else if (expansion < 0.01f && mBlurApplied) {
+                    LegacyBlur.clear(mView);
+                    mBlurApplied = false;
+                }
+            }
+        });
     }
 
     public NotificationShadeWindowView getView() {

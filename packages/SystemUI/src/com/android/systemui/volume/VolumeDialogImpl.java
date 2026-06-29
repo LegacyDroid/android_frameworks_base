@@ -884,7 +884,7 @@ public class VolumeDialogImpl implements VolumeDialog,
         rescheduleTimeoutH();
 
         if (mConfigChanged) {
-            initDialog(); // resets mShowing to false
+            initDialog();
             mConfigurableTexts.update();
             mConfigChanged = false;
         }
