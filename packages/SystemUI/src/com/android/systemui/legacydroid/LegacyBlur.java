@@ -92,14 +92,18 @@ public class LegacyBlur {
 
     private static void capture(Context ctx) {
         try {
-            Display display = ctx.getSystemService(DisplayManager.class).getDisplay(Display.DEFAULT_DISPLAY);
-            int rotation = display.getRotation();
-            Bitmap bmp = SurfaceControl.screenshot(
-                    new Rect(), ctx.getResources().getDisplayMetrics().widthPixels,
-                    ctx.getResources().getDisplayMetrics().heightPixels, rotation);
-            if (bmp == null) return;
+            int rot = ctx.getSystemService(DisplayManager.class)
+                    .getDisplay(Display.DEFAULT_DISPLAY).getRotation();
+            int w = ctx.getResources().getDisplayMetrics().widthPixels;
+            int h = ctx.getResources().getDisplayMetrics().heightPixels;
+            Bitmap hwBmp = SurfaceControl.screenshot(new Rect(), w, h, rot);
+            if (hwBmp == null) return;
 
-            sScreenshot = bmp;
+            // Hardware-backed bitmap must be copied to software bitmap
+            sScreenshot = hwBmp.copy(Bitmap.Config.ARGB_8888, false);
+            hwBmp.recycle();
+            if (sScreenshot == null) return;
+
             int sw = Math.round(sScreenshot.getWidth() * SCALE);
             int sh = Math.round(sScreenshot.getHeight() * SCALE);
             sScaled = Bitmap.createScaledBitmap(sScreenshot, sw, sh, true);
