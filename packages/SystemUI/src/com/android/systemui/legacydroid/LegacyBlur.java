@@ -31,6 +31,7 @@ public class LegacyBlur {
     private static Bitmap sOutputBmp;
     private static Canvas sOutputCanvas;
     private static BitmapDrawable sOutputDrawable;
+    private static boolean sBlurActive;
 
     public static void onPanelExpansionChanged(View target, Context ctx,
                                                 float expansion, boolean tracking) {
@@ -103,6 +104,7 @@ public class LegacyBlur {
             sScreenshot = hwBmp.copy(Bitmap.Config.ARGB_8888, false);
             hwBmp.recycle();
             if (sScreenshot == null) return;
+            sBlurActive = true;
 
             int sw = Math.round(sScreenshot.getWidth() * SCALE);
             int sh = Math.round(sScreenshot.getHeight() * SCALE);
@@ -110,6 +112,10 @@ public class LegacyBlur {
         } catch (Exception e) {
             Log.e(TAG, "Screenshot capture failed", e);
         }
+    }
+
+    public static boolean isActive() {
+        return sBlurActive;
     }
 
     public static void clear(View target) {
@@ -124,6 +130,7 @@ public class LegacyBlur {
         if (sBlurredSmall != null) { sBlurredSmall.recycle(); sBlurredSmall = null; }
         if (sScaled != null) { sScaled.recycle(); sScaled = null; }
         if (sScreenshot != null) { sScreenshot.recycle(); sScreenshot = null; }
+        sBlurActive = false;
         sOutputBmp = null;
         sOutputCanvas = null;
         sOutputDrawable = null;

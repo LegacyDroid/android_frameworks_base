@@ -46,6 +46,7 @@ import com.android.systemui.DejankUtils;
 import com.android.systemui.Dumpable;
 import com.android.systemui.R;
 import com.android.systemui.colorextraction.SysuiColorExtractor;
+import com.android.systemui.legacydroid.LegacyBlur;
 import com.android.systemui.dock.DockManager;
 import com.android.systemui.statusbar.BlurUtils;
 import com.android.systemui.statusbar.ScrimView;
@@ -476,6 +477,9 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, OnCo
             float behindFraction = getInterpolatedFraction();
             behindFraction = (float) Math.pow(behindFraction, 0.8f);
             mBehindAlpha = behindFraction * mDefaultScrimAlpha;
+            if (LegacyBlur.isActive()) {
+                mBehindAlpha *= 0.1f;
+            }
             mInFrontAlpha = 0;
         } else if (mState == ScrimState.KEYGUARD || mState == ScrimState.PULSING) {
             // Either darken of make the scrim transparent when you
