@@ -24,8 +24,10 @@
     <!-- Advanced restart menu -->
     <!-- Button to indicate more options -->
     <string name="global_action_restart_more">Restart\u2026</string>
+    <string name="global_action_restart_quick">Quick reboot</string>
     <!-- Button to restart the device, within the Restart Options dialog -->
     <string name="global_action_restart_system">System</string>
+    <string name="global_action_restart_systemui">Restart SystemUI</string>
     <!-- Button to restart the device into recovery mode, within the Restart Options dialog -->
     <string name="global_action_restart_recovery">Recovery</string>
     <!-- Button to restart the device into bootloader mode, within the Restart Options dialog -->

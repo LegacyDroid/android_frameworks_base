@@ -198,6 +198,8 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
     private static final String RESTART_ACTION_KEY_RESTART_BOOTLOADER = "restart_bootloader";
     private static final String RESTART_ACTION_KEY_RESTART_DOWNLOAD = "restart_download";
     private static final String RESTART_ACTION_KEY_RESTART_FASTBOOT = "restart_fastboot";
+    private static final String RESTART_ACTION_KEY_RESTART_QUICK = "restart_quick";
+    private static final String RESTART_ACTION_KEY_RESTART_SYSTEMUI = "restart_systemui";
 
     // See NotificationManagerService#scheduleDurationReachedLocked
     private static final long TOAST_FADE_TIME = 333;
@@ -649,6 +651,8 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         RestartBootloaderAction blAction = new RestartBootloaderAction();
         RestartDownloadAction dlAction = new RestartDownloadAction();
         RestartFastbootAction fbAction = new RestartFastbootAction();
+        RestartQuickAction quickAction = new RestartQuickAction();
+        RestartSystemUiAction systemUiAction = new RestartSystemUiAction();
         ArraySet<String> addedKeys = new ArraySet<>();
         ArraySet<String> addedRestartKeys = new ArraySet<String>();
         List<Action> tempActions = new ArrayList<>();
@@ -740,6 +744,10 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                 addIfShouldShowAction(mRestartItems, dlAction);
             } else if (RESTART_ACTION_KEY_RESTART_FASTBOOT.equals(actionKey)) {
                 addIfShouldShowAction(mRestartItems, fbAction);
+            } else if (RESTART_ACTION_KEY_RESTART_QUICK.equals(actionKey)) {
+                addIfShouldShowAction(mRestartItems, quickAction);
+            } else if (RESTART_ACTION_KEY_RESTART_SYSTEMUI.equals(actionKey)) {
+                addIfShouldShowAction(mRestartItems, systemUiAction);
             }
             // Add here so we don't add more than one.
             addedRestartKeys.add(actionKey);
@@ -1115,6 +1123,66 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         @Override
         public void onPress() {
             mWindowManagerFuncs.reboot(false, null);
+        }
+    }
+
+    private final class RestartQuickAction extends SinglePressAction {
+        private RestartQuickAction() {
+            super(com.android.systemui.res.R.drawable.ic_restart,
+                    com.android.systemui.res.R.string.global_action_restart_quick);
+        }
+
+        @Override
+        public boolean showDuringKeyguard() {
+            return true;
+        }
+
+        @Override
+        public boolean showBeforeProvisioning() {
+            return true;
+        }
+
+        @Override
+        public void onPress() {
+            mBackgroundExecutor.execute(() -> {
+                java.util.ArrayList<String> services = new java.util.ArrayList<>();
+                services.add("netd");
+                services.add("surfaceflinger");
+                services.add("audioserver");
+                services.add("zygote");
+                String zygoteConfig = SystemProperties.get("ro.zygote");
+                if (!"zygote32".equals(zygoteConfig) && !"zygote64".equals(zygoteConfig)) {
+                    services.add("zygote_secondary");
+                }
+                for (int i = services.size() - 1; i >= 0; i--) {
+                    SystemProperties.set("ctl.stop", services.get(i));
+                }
+                for (String service : services) {
+                    SystemProperties.set("ctl.start", service);
+                }
+            });
+        }
+    }
+
+    private final class RestartSystemUiAction extends SinglePressAction {
+        private RestartSystemUiAction() {
+            super(com.android.systemui.res.R.drawable.ic_restart,
+                    com.android.systemui.res.R.string.global_action_restart_systemui);
+        }
+
+        @Override
+        public boolean showDuringKeyguard() {
+            return true;
+        }
+
+        @Override
+        public boolean showBeforeProvisioning() {
+            return true;
+        }
+
+        @Override
+        public void onPress() {
+            mHandler.postDelayed(() -> Process.killProcess(Process.myPid()), mDialogPressDelay);
         }
     }
 
