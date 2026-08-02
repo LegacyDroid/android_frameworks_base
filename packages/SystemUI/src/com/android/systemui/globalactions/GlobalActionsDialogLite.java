@@ -71,6 +71,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Message;
 import android.os.PowerManager;
+import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.Trace;
@@ -1128,7 +1129,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
     private final class RestartQuickAction extends SinglePressAction {
         private RestartQuickAction() {
-            super(com.android.systemui.res.R.drawable.ic_restart,
+            super(R.drawable.ic_restart,
                     com.android.systemui.res.R.string.global_action_restart_quick);
         }
 
@@ -1166,7 +1167,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
     private final class RestartSystemUiAction extends SinglePressAction {
         private RestartSystemUiAction() {
-            super(com.android.systemui.res.R.drawable.ic_restart,
+            super(R.drawable.ic_restart,
                     com.android.systemui.res.R.string.global_action_restart_systemui);
         }
 
