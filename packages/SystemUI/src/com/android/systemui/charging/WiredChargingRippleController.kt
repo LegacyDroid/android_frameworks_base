@@ -25,7 +25,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemProperties
 import android.provider.Settings
-import android.util.Base64
 import android.view.Gravity
 import android.view.Surface
 import android.view.View
@@ -55,7 +54,6 @@ private const val MAX_DEBOUNCE_LEVEL = 3
 private const val BASE_DEBOUNCE_TIME = 2000
 
 private const val SETTING_ANIMATION = "legacydroid_charging_animation"
-private const val SETTING_IMAGE_DATA = "legacydroid_charging_image_data"
 private const val SETTING_TRANSPARENCY = "legacydroid_charging_image_transparency"
 private const val SETTING_SIZE = "legacydroid_charging_image_size"
 
@@ -63,6 +61,7 @@ private const val MODE_AOSP = "aosp"
 private const val MODE_NONE = "none"
 private const val MODE_CUSTOM = "custom"
 
+private const val CUSTOM_IMAGE_FILE = "/data/system/legacydroid_charging_image.png"
 private const val CUSTOM_IMAGE_DURATION = 2000L
 
 /***
@@ -204,16 +203,7 @@ class WiredChargingRippleController @Inject constructor(
 
     /** Shows the user's custom image centered on screen for a short while. */
     private fun showCustomImage() {
-        val data = Settings.Global.getString(context.contentResolver, SETTING_IMAGE_DATA)
-        if (data.isNullOrEmpty()) {
-            return
-        }
-        val bytes = try {
-            Base64.decode(data, Base64.DEFAULT)
-        } catch (e: IllegalArgumentException) {
-            return
-        }
-        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+        val bitmap = BitmapFactory.decodeFile(CUSTOM_IMAGE_FILE) ?: return
         val transparency = Settings.Global.getInt(
                 context.contentResolver, SETTING_TRANSPARENCY, 0)
         val sizePercent = Settings.Global.getInt(
