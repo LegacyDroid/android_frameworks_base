@@ -26,6 +26,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemProperties
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.Surface
 import android.view.View
@@ -53,6 +54,7 @@ import kotlin.math.roundToInt
 
 private const val MAX_DEBOUNCE_LEVEL = 3
 private const val BASE_DEBOUNCE_TIME = 2000
+private const val TAG = "WiredChargingRipple"
 
 private const val SETTING_ANIMATION = "legacydroid_charging_animation"
 private const val SETTING_IMAGE = "legacydroid_charging_image"
@@ -175,6 +177,7 @@ class WiredChargingRippleController @Inject constructor(
             // the animation ends.)
             return
         }
+        Log.i(TAG, "startRipple: mode=" + chargingAnimationMode)
         when (chargingAnimationMode) {
             MODE_NONE -> return
             MODE_CUSTOM -> {
@@ -206,14 +209,19 @@ class WiredChargingRippleController @Inject constructor(
     private fun showCustomImage() {
         val uriString = Settings.Global.getString(context.contentResolver, SETTING_IMAGE)
         if (uriString.isNullOrEmpty()) {
+            Log.i(TAG, "custom image: no URI stored")
             return
         }
         val bitmap = try {
             context.contentResolver.openInputStream(Uri.parse(uriString))
                     ?.use { BitmapFactory.decodeStream(it) }
         } catch (e: Exception) {
+            Log.w(TAG, "custom image: failed to open $uriString", e)
             null
-        } ?: return
+        } ?: run {
+            Log.w(TAG, "custom image: decode failed for $uriString")
+            return
+        }
         val transparency = Settings.Global.getInt(
                 context.contentResolver, SETTING_TRANSPARENCY, 0)
         val sizePercent = Settings.Global.getInt(
