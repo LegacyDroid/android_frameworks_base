@@ -18,11 +18,18 @@ package com.android.systemui.charging
 
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemProperties
+import android.provider.Settings
+import android.util.Base64
+import android.view.Gravity
 import android.view.Surface
 import android.view.View
 import android.view.WindowManager
+import android.widget.ImageView
 import com.android.internal.annotations.VisibleForTesting
 import com.android.internal.logging.UiEvent
 import com.android.internal.logging.UiEventLogger
@@ -41,9 +48,21 @@ import java.io.PrintWriter
 import javax.inject.Inject
 import kotlin.math.min
 import kotlin.math.pow
+import kotlin.math.roundToInt
 
 private const val MAX_DEBOUNCE_LEVEL = 3
 private const val BASE_DEBOUNCE_TIME = 2000
+
+private const val SETTING_ANIMATION = "legacydroid_charging_animation"
+private const val SETTING_IMAGE_DATA = "legacydroid_charging_image_data"
+private const val SETTING_TRANSPARENCY = "legacydroid_charging_image_transparency"
+private const val SETTING_SIZE = "legacydroid_charging_image_size"
+
+private const val MODE_AOSP = "aosp"
+private const val MODE_NONE = "none"
+private const val MODE_CUSTOM = "custom"
+
+private const val CUSTOM_IMAGE_DURATION = 2000L
 
 /***
  * Controls the ripple effect that shows when wired charging begins.
@@ -81,6 +100,7 @@ class WiredChargingRippleController @Inject constructor(
     }
     private var lastTriggerTime: Long? = null
     private var debounceLevel = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     @VisibleForTesting
     var rippleView: RippleView = RippleView(context, attrs = null).also { it.setupShader() }
@@ -154,6 +174,13 @@ class WiredChargingRippleController @Inject constructor(
             // the animation ends.)
             return
         }
+        when (chargingAnimationMode) {
+            MODE_NONE -> return
+            MODE_CUSTOM -> {
+                showCustomImage()
+                return
+            }
+        }
         windowLayoutParams.packageName = context.opPackageName
         rippleView.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
             override fun onViewDetachedFromWindow(view: View) {}
@@ -168,6 +195,56 @@ class WiredChargingRippleController @Inject constructor(
         })
         windowManager.addView(rippleView, windowLayoutParams)
         uiEventLogger.log(WiredChargingRippleEvent.CHARGING_RIPPLE_PLAYED)
+    }
+
+    private val chargingAnimationMode: String
+        get() = Settings.Global.getString(context.contentResolver, SETTING_ANIMATION)
+                ?: MODE_AOSP
+
+    /** Shows the user's custom image centered on screen for a short while. */
+    private fun showCustomImage() {
+        val data = Settings.Global.getString(context.contentResolver, SETTING_IMAGE_DATA)
+        if (data.isNullOrEmpty()) {
+            return
+        }
+        val bytes = try {
+            Base64.decode(data, Base64.DEFAULT)
+        } catch (e: IllegalArgumentException) {
+            return
+        }
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return
+        val transparency = Settings.Global.getInt(
+                context.contentResolver, SETTING_TRANSPARENCY, 0)
+        val sizePercent = Settings.Global.getInt(
+                context.contentResolver, SETTING_SIZE, 100)
+
+        val bounds = windowManager.currentWindowMetrics.bounds
+        val targetWidth = (bounds.width() * sizePercent / 100f)
+                .roundToInt().coerceAtLeast(1)
+        val targetHeight = (targetWidth * bitmap.height.toFloat() / bitmap.width)
+                .roundToInt().coerceAtLeast(1)
+
+        val imageView = ImageView(context).apply {
+            setImageBitmap(Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true))
+            alpha = (100 - transparency) / 100f
+        }
+        val params = WindowManager.LayoutParams(
+                targetWidth,
+                targetHeight,
+                WindowManager.LayoutParams.TYPE_KEYGUARD_DIALOG,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+                PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.CENTER
+            packageName = context.opPackageName
+            setTrustedOverlay()
+        }
+        windowManager.addView(imageView, params)
+        mainHandler.postDelayed({
+            if (imageView.parent != null) {
+                windowManager.removeView(imageView)
+            }
+        }, CUSTOM_IMAGE_DURATION)
     }
 
     private fun layoutRipple() {
