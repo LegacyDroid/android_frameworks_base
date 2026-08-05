@@ -55,6 +55,7 @@ private const val MAX_DEBOUNCE_LEVEL = 3
 private const val BASE_DEBOUNCE_TIME = 2000
 
 private const val SETTING_ANIMATION = "legacydroid_charging_animation"
+private const val SETTING_IMAGE = "legacydroid_charging_image"
 private const val SETTING_TRANSPARENCY = "legacydroid_charging_image_transparency"
 private const val SETTING_SIZE = "legacydroid_charging_image_size"
 
