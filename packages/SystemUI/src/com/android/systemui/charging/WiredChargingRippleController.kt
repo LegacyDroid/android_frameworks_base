@@ -21,6 +21,7 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemProperties
@@ -61,7 +62,6 @@ private const val MODE_AOSP = "aosp"
 private const val MODE_NONE = "none"
 private const val MODE_CUSTOM = "custom"
 
-private const val CUSTOM_IMAGE_FILE = "/data/system/legacydroid_charging_image.png"
 private const val CUSTOM_IMAGE_DURATION = 2000L
 
 /***
@@ -203,7 +203,16 @@ class WiredChargingRippleController @Inject constructor(
 
     /** Shows the user's custom image centered on screen for a short while. */
     private fun showCustomImage() {
-        val bitmap = BitmapFactory.decodeFile(CUSTOM_IMAGE_FILE) ?: return
+        val uriString = Settings.Global.getString(context.contentResolver, SETTING_IMAGE)
+        if (uriString.isNullOrEmpty()) {
+            return
+        }
+        val bitmap = try {
+            context.contentResolver.openInputStream(Uri.parse(uriString))
+                    ?.use { BitmapFactory.decodeStream(it) }
+        } catch (e: Exception) {
+            null
+        } ?: return
         val transparency = Settings.Global.getInt(
                 context.contentResolver, SETTING_TRANSPARENCY, 0)
         val sizePercent = Settings.Global.getInt(
