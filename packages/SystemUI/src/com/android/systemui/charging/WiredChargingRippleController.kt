@@ -18,8 +18,7 @@ package com.android.systemui.charging
 
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -302,22 +301,30 @@ class WiredChargingRippleController @Inject constructor(
             setTrustedOverlay()
         }
         windowManager.addView(imageView, params)
-        val fadeIn = ObjectAnimator.ofFloat(imageView, View.ALPHA, 0f, imageAlpha)
-                .setDuration(CUSTOM_IMAGE_FADE_IN_MS.toLong())
-        val fadeOut = ObjectAnimator.ofFloat(imageView, View.ALPHA, imageAlpha, 0f)
-                .setDuration(CUSTOM_IMAGE_FADE_OUT_MS.toLong())
-        fadeOut.startDelay = CUSTOM_IMAGE_HOLD_MS.toLong()
-        fadeOut.addListener(object : AnimatorListenerAdapter() {
-            override fun onAnimationEnd(animation: Animator) {
-                if (imageView.parent != null) {
-                    windowManager.removeView(imageView)
+        val totalMs = (CUSTOM_IMAGE_FADE_IN_MS + CUSTOM_IMAGE_HOLD_MS
+                + CUSTOM_IMAGE_FADE_OUT_MS).toFloat()
+        val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = totalMs.toLong()
+            addUpdateListener { animation ->
+                val t = animation.animatedValue as Float
+                val alpha = when {
+                    t < CUSTOM_IMAGE_FADE_IN_MS ->
+                        t / CUSTOM_IMAGE_FADE_IN_MS
+                    t < CUSTOM_IMAGE_FADE_IN_MS + CUSTOM_IMAGE_HOLD_MS -> 1f
+                    else -> 1f - (t - CUSTOM_IMAGE_FADE_IN_MS - CUSTOM_IMAGE_HOLD_MS)
+                            / CUSTOM_IMAGE_FADE_OUT_MS
                 }
+                imageView.alpha = alpha * imageAlpha
             }
-        })
-        AnimatorSet().apply {
-            playSequentially(fadeIn, fadeOut)
-            start()
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator, isReverse: Boolean) {
+                    if (imageView.parent != null) {
+                        windowManager.removeView(imageView)
+                    }
+                }
+            })
         }
+        animator.start()
     }
 
     private fun layoutRipple() {
