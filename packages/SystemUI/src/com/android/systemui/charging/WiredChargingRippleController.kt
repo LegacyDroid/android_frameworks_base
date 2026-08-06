@@ -306,7 +306,7 @@ class WiredChargingRippleController @Inject constructor(
         val animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = totalMs.toLong()
             addUpdateListener { animation ->
-                val t = animation.animatedValue as Float
+                val t = (animation.animatedValue as Float) * totalMs
                 val alpha = when {
                     t < CUSTOM_IMAGE_FADE_IN_MS ->
                         t / CUSTOM_IMAGE_FADE_IN_MS
