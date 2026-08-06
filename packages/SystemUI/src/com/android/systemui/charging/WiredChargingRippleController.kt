@@ -25,6 +25,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemProperties
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -317,14 +319,25 @@ class WiredChargingRippleController @Inject constructor(
                 imageView.alpha = alpha * imageAlpha
             }
             addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    removeCustomImage(imageView)
+                }
+
                 override fun onAnimationEnd(animation: Animator, isReverse: Boolean) {
-                    if (imageView.parent != null) {
-                        windowManager.removeView(imageView)
-                    }
+                    removeCustomImage(imageView)
                 }
             })
         }
         animator.start()
+    }
+
+    /** Removes the image window after the compositor has drawn a settled transparent frame,
+     *  otherwise the last full-alpha buffer can flash briefly during surface teardown. */
+    private fun removeCustomImage(imageView: ImageView) {
+        imageView.alpha = 0f
+        Handler(Looper.getMainLooper()).postDelayed({
+            windowManager.removeView(imageView)
+        }, 150L)
     }
 
     private fun layoutRipple() {
