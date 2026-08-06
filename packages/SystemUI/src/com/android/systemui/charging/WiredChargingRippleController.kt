@@ -61,6 +61,7 @@ private const val TAG = "WiredChargingRipple"
 
 private const val SETTING_ANIMATION = "legacydroid_charging_animation"
 private const val SETTING_IMAGE = "legacydroid_charging_image"
+private const val SETTING_IMAGE_DATA = "legacydroid_charging_image_data"
 private const val SETTING_TRANSPARENCY = "legacydroid_charging_image_transparency"
 private const val SETTING_SIZE = "legacydroid_charging_image_size"
 
