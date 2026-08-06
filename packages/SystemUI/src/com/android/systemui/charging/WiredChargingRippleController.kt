@@ -311,8 +311,8 @@ class WiredChargingRippleController @Inject constructor(
                     t < CUSTOM_IMAGE_FADE_IN_MS ->
                         t / CUSTOM_IMAGE_FADE_IN_MS
                     t < CUSTOM_IMAGE_FADE_IN_MS + CUSTOM_IMAGE_HOLD_MS -> 1f
-                    else -> 1f - (t - CUSTOM_IMAGE_FADE_IN_MS - CUSTOM_IMAGE_HOLD_MS)
-                            / CUSTOM_IMAGE_FADE_OUT_MS
+                    else -> 1f - (t - CUSTOM_IMAGE_FADE_IN_MS - CUSTOM_IMAGE_HOLD_MS) /
+                            CUSTOM_IMAGE_FADE_OUT_MS
                 }
                 imageView.alpha = alpha * imageAlpha
             }
