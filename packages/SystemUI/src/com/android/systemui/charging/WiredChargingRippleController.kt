@@ -25,7 +25,10 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemProperties
+import android.provider.DocumentsContract
+import android.provider.MediaStore
 import android.provider.Settings
+import android.util.Base64
 import android.util.Log
 import android.view.Gravity
 import android.view.Surface
@@ -104,6 +107,26 @@ class WiredChargingRippleController @Inject constructor(
     private var lastTriggerTime: Long? = null
     private var debounceLevel = 0
     private val mainHandler = Handler(Looper.getMainLooper())
+        /**
+     * Converts a media document URI (content://com.android.providers.media.documents/
+     * document/image%3A22) into its MediaStore URI (content://media/external/images/media/22),
+     * or null if the URI is not a media document.
+     */
+    @VisibleForTesting
+    fun mediaStoreUri(documentUri: String): Uri? {
+        val docId = DocumentsContract.getDocumentId(Uri.parse(documentUri)) ?: return null
+        val separator = docId.indexOf(':')
+        if (separator <= 0) {
+            return null
+        }
+        val id = docId.substring(separator + 1).toLongOrNull() ?: return null
+        val type = docId.substring(0, separator)
+        return when (type) {
+            "image" -> MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL, id)
+            "video" -> MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL, id)
+            else -> null
+        }
+    }
 
     @VisibleForTesting
     var rippleView: RippleView = RippleView(context, attrs = null).also { it.setupShader() }
@@ -207,19 +230,44 @@ class WiredChargingRippleController @Inject constructor(
 
     /** Shows the user's custom image centered on screen for a short while. */
     private fun showCustomImage() {
+        var bitmap: Bitmap? = null
+        // Primary channel: the media document's MediaStore URI, which SystemUI can open with
+        // its READ_EXTERNAL_STORAGE grant (the documents provider itself refuses other grants).
         val uriString = Settings.Global.getString(context.contentResolver, SETTING_IMAGE)
-        if (uriString.isNullOrEmpty()) {
-            Log.i(TAG, "custom image: no URI stored")
-            return
+        if (!uriString.isNullOrEmpty()) {
+            val mediaUri = mediaStoreUri(uriString)
+            if (mediaUri != null) {
+                bitmap = try {
+                    context.contentResolver.openInputStream(mediaUri)
+                            ?.use { BitmapFactory.decodeStream(it) }
+                } catch (e: Exception) {
+                    Log.w(TAG, "custom image: MediaStore read failed for $mediaUri", e)
+                    null
+                }
+            }
+            if (bitmap != null) {
+                Log.i(TAG, "custom image: loaded from MediaStore")
+            }
         }
-        val bitmap = try {
-            context.contentResolver.openInputStream(Uri.parse(uriString))
-                    ?.use { BitmapFactory.decodeStream(it) }
-        } catch (e: Exception) {
-            Log.w(TAG, "custom image: failed to open $uriString", e)
-            null
-        } ?: run {
-            Log.w(TAG, "custom image: decode failed for $uriString")
+        // Fallback channel: a size-bounded JPEG stored base64 in Settings.Global by Settings.
+        if (bitmap == null) {
+            val data = Settings.Global.getString(context.contentResolver, SETTING_IMAGE_DATA)
+            if (data.isNullOrEmpty()) {
+                Log.w(TAG, "custom image: no image data available")
+                return
+            }
+            bitmap = try {
+                BitmapFactory.decodeByteArray(Base64.decode(data, Base64.DEFAULT), 0, 0)
+            } catch (e: Exception) {
+                Log.w(TAG, "custom image: base64 decode failed", e)
+                null
+            }
+            if (bitmap != null) {
+                Log.i(TAG, "custom image: loaded from base64 fallback")
+            }
+        }
+        if (bitmap == null) {
+            Log.w(TAG, "custom image: nothing to show")
             return
         }
         val transparency = Settings.Global.getInt(
