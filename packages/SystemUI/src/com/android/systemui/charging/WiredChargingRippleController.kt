@@ -16,14 +16,16 @@
 
 package com.android.systemui.charging
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
+import android.animation.AnimatorSet
+import android.animation.ObjectAnimator
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.PixelFormat
 import android.net.Uri
-import android.os.Handler
-import android.os.Looper
 import android.os.SystemProperties
 import android.provider.DocumentsContract
 import android.provider.MediaStore
@@ -69,7 +71,9 @@ private const val MODE_AOSP = "aosp"
 private const val MODE_NONE = "none"
 private const val MODE_CUSTOM = "custom"
 
-private const val CUSTOM_IMAGE_DURATION = 2000L
+private const val CUSTOM_IMAGE_FADE_IN_MS = 350
+private const val CUSTOM_IMAGE_HOLD_MS = 1300
+private const val CUSTOM_IMAGE_FADE_OUT_MS = 350
 
 /***
  * Controls the ripple effect that shows when wired charging begins.
@@ -107,7 +111,6 @@ class WiredChargingRippleController @Inject constructor(
     }
     private var lastTriggerTime: Long? = null
     private var debounceLevel = 0
-    private val mainHandler = Handler(Looper.getMainLooper())
         /**
      * Converts a media document URI (content://com.android.providers.media.documents/
      * document/image%3A22) into its MediaStore URI (content://media/external/images/media/22),
@@ -282,9 +285,10 @@ class WiredChargingRippleController @Inject constructor(
         val targetHeight = (targetWidth * bitmap.height.toFloat() / bitmap.width)
                 .roundToInt().coerceAtLeast(1)
 
+        val imageAlpha = (100 - transparency) / 100f
         val imageView = ImageView(context).apply {
             setImageBitmap(Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true))
-            alpha = (100 - transparency) / 100f
+            alpha = 0f
         }
         val params = WindowManager.LayoutParams(
                 targetWidth,
@@ -298,11 +302,22 @@ class WiredChargingRippleController @Inject constructor(
             setTrustedOverlay()
         }
         windowManager.addView(imageView, params)
-        mainHandler.postDelayed({
-            if (imageView.parent != null) {
-                windowManager.removeView(imageView)
+        val fadeIn = ObjectAnimator.ofFloat(imageView, View.ALPHA, 0f, imageAlpha)
+                .setDuration(CUSTOM_IMAGE_FADE_IN_MS.toLong())
+        val fadeOut = ObjectAnimator.ofFloat(imageView, View.ALPHA, imageAlpha, 0f)
+                .setDuration(CUSTOM_IMAGE_FADE_OUT_MS.toLong())
+        fadeOut.startDelay = CUSTOM_IMAGE_HOLD_MS.toLong()
+        fadeOut.addListener(object : AnimatorListenerAdapter() {
+            override fun onAnimationEnd(animation: Animator) {
+                if (imageView.parent != null) {
+                    windowManager.removeView(imageView)
+                }
             }
-        }, CUSTOM_IMAGE_DURATION)
+        })
+        AnimatorSet().apply {
+            playSequentially(fadeIn, fadeOut)
+            start()
+        }
     }
 
     private fun layoutRipple() {
