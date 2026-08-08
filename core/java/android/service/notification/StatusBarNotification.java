@@ -71,6 +71,8 @@ public class StatusBarNotification implements Parcelable {
 
     private Context mContext; // used for inflation & icon expansion
 
+    private boolean mIsContentSecure;
+
     /** @hide */
     public StatusBarNotification(String pkg, String opPkg, int id,
             String tag, int uid, int initialPid, Notification notification, UserHandle user,
@@ -334,6 +336,26 @@ public class StatusBarNotification implements Parcelable {
     public boolean isClearable() {
         return ((notification.flags & Notification.FLAG_ONGOING_EVENT) == 0)
                 && ((notification.flags & Notification.FLAG_NO_CLEAR) == 0);
+    }
+
+    /**
+     * Set whether the notification content is secure.
+     *
+     * @param isContentSecure whether the content is secure.
+     * @hide
+     */
+    public void setIsContentSecure(boolean isContentSecure) {
+        mIsContentSecure = isContentSecure;
+    }
+
+    /**
+     * Whether the notification content is secure.
+     *
+     * @return whether the content is secure.
+     * @hide
+     */
+    public boolean getIsContentSecure() {
+        return mIsContentSecure;
     }
 
     /**
