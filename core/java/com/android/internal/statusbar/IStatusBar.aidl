@@ -386,4 +386,7 @@ oneway interface IStatusBar
     * @param displayId the id of the current display.
     */
     void enterDesktop(int displayId);
+
+    /** Locks/unlocks the gestural navigation for the GameSpace permanent game bar. */
+    void setBlockedGesturalNavigation(boolean blocked);
 }
