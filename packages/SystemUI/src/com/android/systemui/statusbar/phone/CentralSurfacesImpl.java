@@ -3042,6 +3042,13 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
         return mGameSpaceManager;
     }
 
+    @Override
+    public void setBlockedGesturalNavigation(boolean blocked) {
+        if (getNavigationBarView() != null) {
+            getNavigationBarView().setBlockedGesturalNavigation(blocked);
+        }
+    }
+
     private void updateLightRevealScrimVisibility() {
         if (mLightRevealScrim == null) {
             // status bar may not be inflated yet

@@ -209,6 +209,11 @@ public class CentralSurfacesCommandQueueCallbacks implements CommandQueue.Callba
     }
 
     @Override
+    public void setBlockedGesturalNavigation(boolean blocked) {
+        mCentralSurfaces.setBlockedGesturalNavigation(blocked);
+    }
+
+    @Override
     public void animateExpandNotificationsPanel() {
         if (CentralSurfaces.SPEW) {
             Log.d(CentralSurfaces.TAG,

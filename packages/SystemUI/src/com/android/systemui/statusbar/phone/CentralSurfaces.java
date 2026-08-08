@@ -103,6 +103,8 @@ public interface CentralSurfaces extends Dumpable, LifecycleOwner {
 
     GameSpaceManager getGameSpaceManager();
 
+    void setBlockedGesturalNavigation(boolean blocked);
+
     /**
      * Returns an ActivityOptions bundle created using the given parameters.
      *

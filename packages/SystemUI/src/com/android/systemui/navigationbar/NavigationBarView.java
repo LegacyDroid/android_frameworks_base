@@ -167,6 +167,8 @@ public class NavigationBarView extends FrameLayout {
     private ScreenPinningNotify mScreenPinningNotify;
     private boolean mScreenPinningActive = false;
 
+    private boolean mBlockedGesturalNavigation;
+
     /**
      * {@code true} if the IME can render the back button and the IME switcher button.
      *
@@ -784,16 +786,24 @@ public class NavigationBarView extends FrameLayout {
         int displayId = mContext.getDisplayId();
 
         sysUiState.setFlag(SYSUI_STATE_OVERVIEW_DISABLED,
+                        mBlockedGesturalNavigation ||
                         (mDisabledFlags & View.STATUS_BAR_DISABLE_RECENT) != 0)
                 .setFlag(SYSUI_STATE_HOME_DISABLED,
+                        mBlockedGesturalNavigation ||
                         (mDisabledFlags & View.STATUS_BAR_DISABLE_HOME) != 0)
                 .setFlag(SYSUI_STATE_SEARCH_DISABLED,
+                        mBlockedGesturalNavigation ||
                         (mDisabledFlags & View.STATUS_BAR_DISABLE_SEARCH) != 0)
                 .commitUpdate(displayId);
     }
 
     public void setInScreenPinning(boolean active) {
         mScreenPinningActive = active;
+    }
+
+    public void setBlockedGesturalNavigation(boolean blocked) {
+        mBlockedGesturalNavigation = blocked;
+        mEdgeBackGestureHandler.setBlockedGesturalNavigation(blocked);
     }
 
     private void updatePanelSystemUiStateFlags() {
