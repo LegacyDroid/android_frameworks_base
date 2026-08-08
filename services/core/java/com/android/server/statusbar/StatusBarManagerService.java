@@ -414,17 +414,6 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
         }
 
         @Override
-        public void setBlockedGesturalNavigation(boolean blocked) {
-            enforceStatusBarService();
-            IStatusBar bar = mBar;
-            if (bar != null) {
-                try {
-                    bar.setBlockedGesturalNavigation(blocked);
-                } catch (RemoteException ex) {}
-            }
-        }
-
-        @Override
         public void toggleSplitScreen() {
             enforceStatusBarService();
             IStatusBar bar = mBar;
@@ -935,6 +924,19 @@ public class StatusBarManagerService extends IStatusBarService.Stub implements D
                 mBar.animateCollapsePanels();
             } catch (RemoteException ex) {
             }
+        }
+    }
+
+    @Override
+    public void setBlockedGesturalNavigation(boolean blocked) {
+        enforceStatusBarService();
+        IStatusBar bar = mBar;
+        if (bar == null) {
+            return;
+        }
+        try {
+            bar.setBlockedGesturalNavigation(blocked);
+        } catch (RemoteException ex) {
         }
     }
 
