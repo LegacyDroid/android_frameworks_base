@@ -19,6 +19,9 @@ package com.android.server;
 import static android.os.ParcelFileDescriptor.MODE_READ_WRITE;
 import static android.system.OsConstants.O_RDONLY;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -140,8 +143,37 @@ public class BootReceiver extends BroadcastReceiver {
     private static final int MAX_ERROR_REPORTS = 8;
     private static int sSentReports = 0;
 
+    // Build type set by the build system (e.g. RELEASE, NIGHTLY, UNOFFICIAL).
+    private static final String BUILD_TYPE_PROP = "ro.lineage.releasetype";
+    private static final String BUILD_TYPE_WARNING_CHANNEL = "build_type_warning";
+    private static final int BUILD_TYPE_WARNING_NOTIFICATION_ID = 0x0A10;
+
+    private void showBuildTypeWarning(Context context) {
+        String buildType = SystemProperties.get(BUILD_TYPE_PROP, "UNOFFICIAL");
+        if ("RELEASE".equals(buildType)) {
+            return;
+        }
+        NotificationManager nm = context.getSystemService(NotificationManager.class);
+        nm.createNotificationChannel(new NotificationChannel(
+                BUILD_TYPE_WARNING_CHANNEL,
+                context.getString(com.android.internal.R.string.build_type_warning_channel_name),
+                NotificationManager.IMPORTANCE_LOW));
+        Notification notification = new Notification.Builder(context, BUILD_TYPE_WARNING_CHANNEL)
+                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setContentTitle(context.getString(
+                        com.android.internal.R.string.build_type_warning_title))
+                .setContentText(context.getString(
+                        com.android.internal.R.string.build_type_warning_message, buildType))
+                .setAutoCancel(true)
+                .build();
+        nm.notify(BUILD_TYPE_WARNING_NOTIFICATION_ID, notification);
+    }
+
     @Override
     public void onReceive(final Context context, Intent intent) {
+        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+            showBuildTypeWarning(context);
+        }
         // Log boot events in the background to avoid blocking the main thread with I/O
         new Thread() {
             @Override
