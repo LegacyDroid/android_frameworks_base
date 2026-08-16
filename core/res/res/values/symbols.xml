@@ -652,6 +652,9 @@
   <java-symbol type="string" name="autofill_window_title" />
   <java-symbol type="string" name="badPin" />
   <java-symbol type="string" name="badPuk" />
+  <java-symbol type="string" name="build_type_warning_channel_name" />
+  <java-symbol type="string" name="build_type_warning_message" />
+  <java-symbol type="string" name="build_type_warning_title" />
   <java-symbol type="string" name="byteShort" />
   <java-symbol type="string" name="capability_title_canRequestFilterKeyEvents" />
   <java-symbol type="string" name="capability_desc_canRequestTouchExploration" />
