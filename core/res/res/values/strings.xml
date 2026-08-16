@@ -5840,7 +5840,7 @@
     <!-- Title of notification warning that the running build is not a release build [CHAR_LIMIT=80] -->
     <string name="build_type_warning_title">Warning</string>
     <!-- Message of notification warning that the running build is not a release build [CHAR_LIMIT=NONE] -->
-    <string name="build_type_warning_message">This is a %1$s build, not a release build. It may not come from our team, so don\'t expect it to be fully stable.</string>
+    <string name="build_type_warning_message">This is a %1$s build, not a release build, so don\'t expect it to be fully stable.</string>
     <!-- Title of notification letting users know that battery saver is now off [CHAR_LIMIT=80] -->
     <string name="battery_saver_off_notification_title">Battery Saver turned off</string>
     <!-- Title of notification letting users know the battery level at the time the notification was posted [CHAR_LIMIT=80] -->
