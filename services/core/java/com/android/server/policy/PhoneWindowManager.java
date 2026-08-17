@@ -3322,9 +3322,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mTorchTimeout = LineageSettings.System.getIntForUser(
                     resolver, LineageSettings.System.TORCH_LONG_PRESS_POWER_TIMEOUT, 0,
                     UserHandle.USER_CURRENT);
-            mLuminaPowerButtonEnabled = Settings.Global.getIntForUser(
-                    resolver, Settings.Global.LUMINA_POWER_BUTTON, 0,
-                    UserHandle.USER_CURRENT) == 1;
+            mLuminaPowerButtonEnabled = Settings.Global.getInt(
+                    resolver, Settings.Global.LUMINA_POWER_BUTTON, 0) == 1;
             mClickPartialScreenshot = LineageSettings.System.getIntForUser(resolver,
                     LineageSettings.System.CLICK_PARTIAL_SCREENSHOT, 0,
                     UserHandle.USER_CURRENT) == 1;
