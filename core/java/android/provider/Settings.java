@@ -17673,6 +17673,16 @@ public final class Settings {
                 "power_button_long_press_duration_ms";
 
         /**
+         * When set to 1, long pressing the power button launches Lumina instead of the
+         * configured long-press behavior.
+         * Used by PhoneWindowManager.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_POWER_BUTTON =
+                "legacydroid_luminaai_power_button";
+
+        /**
          * Overrides internal R.integer.config_veryLongPressOnPowerBehavior.
          * Allowable values detailed in frameworks/base/core/res/res/values/config.xml.
          * Used by PhoneWindowManager.

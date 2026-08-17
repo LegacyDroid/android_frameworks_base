@@ -322,6 +322,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     static final int LONG_PRESS_POWER_GO_TO_VOICE_ASSIST = 4;
     static final int LONG_PRESS_POWER_ASSISTANT = 5; // Settings.Secure.ASSISTANT
     static final int LONG_PRESS_POWER_TORCH = 6;
+    static final int LONG_PRESS_POWER_LUMINA = 7;
 
     // must match: config_veryLongPresOnPowerBehavior in config.xml
     // The config value can be overridden using Settings.Global.POWER_BUTTON_VERY_LONG_PRESS
@@ -813,6 +814,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private CameraManager mCameraManager;
     private String mRearFlashCameraId;
     private boolean mTorchLongPressPowerEnabled;
+    private boolean mLuminaPowerButtonEnabled;
     private boolean mTorchEnabled;
     private int mTorchTimeout;
     private PendingIntent mTorchOffPendingIntent;
@@ -993,6 +995,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                     UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.Global.getUriFor(
                     Settings.Global.POWER_BUTTON_VERY_LONG_PRESS), false, this,
+                    UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.Global.getUriFor(
+                    Settings.Global.LUMINA_POWER_BUTTON), false, this,
                     UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.Global.getUriFor(
                     Settings.Global.STEM_PRIMARY_BUTTON_SHORT_PRESS), false, this,
@@ -1625,7 +1630,23 @@ public class PhoneWindowManager implements WindowManagerPolicy {
                 msg.setAsynchronous(true);
                 msg.sendToTarget();
                 break;
+            case LONG_PRESS_POWER_LUMINA:
+                mPowerKeyHandled = true;
+                performHapticFeedback(HapticFeedbackConstants.ASSISTANT_BUTTON, false,
+                        "Power - Long Press - Lumina");
+                launchLuminaAssistant();
+                break;
         }
+    }
+
+    private void launchLuminaAssistant() {
+        final Intent intent = new Intent();
+        intent.setComponent(new ComponentName("com.legacydroid.luminaai",
+                "com.legacydroid.luminaai.LuminaOverlayActivity"));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                | Intent.FLAG_ACTIVITY_NO_ANIMATION
+                | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+        startActivityAsUser(intent, UserHandle.CURRENT);
     }
 
     private void powerVeryLongPress() {
@@ -1706,6 +1727,10 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private int getResolvedLongPressOnPowerBehavior() {
         if (FactoryTest.isLongPressOnPowerOffEnabled()) {
             return LONG_PRESS_POWER_SHUT_OFF_NO_CONFIRM;
+        }
+        // The Lumina power-button trigger overrides the configured behavior while enabled.
+        if (mLuminaPowerButtonEnabled) {
+            return LONG_PRESS_POWER_LUMINA;
         }
         if (mTorchLongPressPowerEnabled && (!isScreenOn() || isDozeMode() || mTorchEnabled)) {
             return LONG_PRESS_POWER_TORCH;
@@ -3297,6 +3322,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             mTorchTimeout = LineageSettings.System.getIntForUser(
                     resolver, LineageSettings.System.TORCH_LONG_PRESS_POWER_TIMEOUT, 0,
                     UserHandle.USER_CURRENT);
+            mLuminaPowerButtonEnabled = Settings.Global.getIntForUser(
+                    resolver, Settings.Global.LUMINA_POWER_BUTTON, 0,
+                    UserHandle.USER_CURRENT) == 1;
             mClickPartialScreenshot = LineageSettings.System.getIntForUser(resolver,
                     LineageSettings.System.CLICK_PARTIAL_SCREENSHOT, 0,
                     UserHandle.USER_CURRENT) == 1;
