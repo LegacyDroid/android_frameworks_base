@@ -17683,6 +17683,78 @@ public final class Settings {
                 "legacydroid_luminaai_power_button";
 
         /**
+         * AI engine provider for LuminaAI: "gemini", "opencode" or "custom".
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_ENGINE_PROVIDER =
+                "legacydroid_luminaai_provider";
+
+        /**
+         * AI model used by the default (non-custom) engines.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_ENGINE_MODEL =
+                "legacydroid_luminaai_model";
+
+        /**
+         * Custom OpenAI-compatible base URL for LuminaAI.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_CUSTOM_BASE_URL =
+                "legacydroid_luminaai_custom_base_url";
+
+        /**
+         * Custom OpenAI-compatible API key for LuminaAI.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_CUSTOM_API_KEY =
+                "legacydroid_luminaai_custom_api_key";
+
+        /**
+         * Custom OpenAI-compatible model name for LuminaAI.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_CUSTOM_MODEL =
+                "legacydroid_luminaai_custom_model";
+
+        /**
+         * Unsafe Developer Mode gate for locked LuminaAI tools (raw shell).
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_UNSAFE_DEV_MODE =
+                "legacydroid_luminaai_unsafe_dev_mode";
+
+        /**
+         * Proactive background-privacy audit alerts from LuminaAI.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_PRIVACY_ALERTS =
+                "legacydroid_luminaai_privacy_alerts";
+
+        /**
+         * Auto-copy OTP codes detected in notifications.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_AUTO_OTP =
+                "legacydroid_luminaai_auto_otp";
+
+        /**
+         * Prefix for per-tool enable switches of LuminaAI.
+         * @hide
+         */
+        @Readable
+        public static final String LUMINA_TOOL_ENABLED_PREFIX =
+                "legacydroid_luminaai_tool_";
+
+        /**
          * Overrides internal R.integer.config_veryLongPressOnPowerBehavior.
          * Allowable values detailed in frameworks/base/core/res/res/values/config.xml.
          * Used by PhoneWindowManager.
