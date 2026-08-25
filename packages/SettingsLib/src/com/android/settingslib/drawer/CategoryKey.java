@@ -64,6 +64,8 @@ public final class CategoryKey {
             "com.android.settings.category.ia.about_legal";
     public static final String CATEGORY_MY_DEVICE_INFO =
             "com.android.settings.category.ia.my_device_info";
+    public static final String CATEGORY_ABOUT_DEVICE_MAIN =
+            "com.android.settings.category.about_device_main";
     public static final String CATEGORY_BATTERY_SAVER_SETTINGS =
             "com.android.settings.category.ia.battery_saver_settings";
     public static final String CATEGORY_SMART_BATTERY_SETTINGS =
