@@ -16,12 +16,14 @@
 
 package com.android.systemui.dynamicpill
 
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Context
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
+import android.service.notification.StatusBarNotification
 import android.util.Log
 import com.android.systemui.CoreStartable
 import com.android.systemui.Dumpable
@@ -56,18 +58,33 @@ class DynamicPillController @Inject constructor(
     companion object {
         private const val TAG = "DynamicPillController"
         private const val CLOCK_TICK_INTERVAL_MS = 1000L
+        private const val DESKCLOCK_POLL_INTERVAL_MS = 2000L
         private const val DUMP_PREFIX = "DynamicPillController"
+        private const val DESKCLOCK_PACKAGE = "com.android.deskclock"
+        private const val TIMER_CHANNEL = "timerNotification"
+        private const val STOPWATCH_CHANNEL = "stopwatchNotification"
+        private const val TIMER_NOTIF_ID = Int.MAX_VALUE - 2
+        private const val STOPWATCH_NOTIF_ID = Int.MAX_VALUE - 1
     }
 
     private val callbacks = CopyOnWriteArrayList<DynamicPillCallback>()
     private val activeSessions = mutableMapOf<PillSourceType, PillSession>()
     private var currentState = PillState()
     private var clockTickerRunning = false
+    private var deskclockPollingRunning = false
+    private val notificationManager = context.getSystemService(NotificationManager::class.java)
 
     private val clockTicker = object : Runnable {
         override fun run() {
             updateClockSessions()
             mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
+        }
+    }
+
+    private val deskclockPoller = object : Runnable {
+        override fun run() {
+            checkDeskclockNotifications()
+            mainHandler.postDelayed(this, DESKCLOCK_POLL_INTERVAL_MS)
         }
     }
 
@@ -130,6 +147,7 @@ class DynamicPillController @Inject constructor(
         val componentName = ComponentName(context, "com.android.systemui.media.MediaSessionBasedFilter")
         mediaSessionManager.addOnActiveSessionsChangedListener(listener, componentName)
         startClockTicker()
+        startDeskclockPolling()
     }
 
     /** Stop listening and release resources. */
@@ -138,6 +156,7 @@ class DynamicPillController @Inject constructor(
         mediaDataManager.removeListener(mediaDataListener)
         recordingController.removeCallback(recordingStateCallback)
         stopClockTicker()
+        stopDeskclockPolling()
         activeSessions.clear()
         dispatchState()
     }
@@ -155,6 +174,7 @@ class DynamicPillController @Inject constructor(
     fun toggleExpanded() {
         currentState = currentState.copy(isExpanded = !currentState.isExpanded)
         dispatchState()
+        callbacks.forEach { it.onPillClicked(currentState) }
     }
 
     /** Set expanded state externally (e.g., from touch handling). */
@@ -256,6 +276,92 @@ class DynamicPillController @Inject constructor(
             elapsedMillis = elapsedMillis ?: current.elapsedMillis,
         )
         addSession(updated)
+    }
+
+    private fun startDeskclockPolling() {
+        if (!deskclockPollingRunning) {
+            deskclockPollingRunning = true
+            mainHandler.post(deskclockPoller)
+        }
+    }
+
+    private fun stopDeskclockPolling() {
+        deskclockPollingRunning = false
+        mainHandler.removeCallbacks(deskclockPoller)
+    }
+
+    private fun checkDeskclockNotifications() {
+        try {
+            val notifications = notificationManager?.activeNotifications ?: return
+            var foundTimer = false
+            var foundStopwatch = false
+
+            for (sbn: StatusBarNotification in notifications) {
+                if (sbn.packageName != DESKCLOCK_PACKAGE) continue
+                val channelId = sbn.notification?.channelId ?: continue
+
+                if (channelId == TIMER_CHANNEL && sbn.id == TIMER_NOTIF_ID) {
+                    foundTimer = true
+                    val elapsed = extractElapsedFromNotification(sbn)
+                    addSession(PillSession.Clock(
+                        isStopwatch = false,
+                        elapsedMillis = elapsed,
+                        isPaused = !sbn.isOngoing,
+                    ))
+                } else if (channelId == STOPWATCH_CHANNEL && sbn.id == STOPWATCH_NOTIF_ID) {
+                    foundStopwatch = true
+                    val elapsed = extractElapsedFromNotification(sbn)
+                    addSession(PillSession.Clock(
+                        isStopwatch = true,
+                        elapsedMillis = elapsed,
+                        isPaused = !sbn.isOngoing,
+                    ))
+                }
+            }
+
+            if (!foundTimer && activeSessions.containsKey(PillSourceType.CLOCK)) {
+                val current = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock
+                if (current != null && !current.isStopwatch) {
+                    removeSession(PillSourceType.CLOCK)
+                }
+            }
+            if (!foundStopwatch && activeSessions.containsKey(PillSourceType.CLOCK)) {
+                val current = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock
+                if (current != null && current.isStopwatch) {
+                    removeSession(PillSourceType.CLOCK)
+                }
+            }
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Cannot access active notifications", e)
+        }
+    }
+
+    private fun extractElapsedFromNotification(sbn: StatusBarNotification): Long {
+        val extras = sbn.notification?.extras ?: return 0L
+        val text = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: return 0L
+        return try {
+            parseTimeStringToMillis(text)
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    private fun parseTimeStringToMillis(time: String): Long {
+        val parts = time.split(":")
+        return when (parts.size) {
+            3 -> {
+                val h = parts[0].toLongOrNull() ?: 0L
+                val m = parts[1].toLongOrNull() ?: 0L
+                val s = parts[2].toLongOrNull() ?: 0L
+                (h * 3600 + m * 60 + s) * 1000
+            }
+            2 -> {
+                val m = parts[0].toLongOrNull() ?: 0L
+                val s = parts[1].toLongOrNull() ?: 0L
+                (m * 60 + s) * 1000
+            }
+            else -> 0L
+        }
     }
 
     override fun dump(pw: PrintWriter, args: Array<String>) {

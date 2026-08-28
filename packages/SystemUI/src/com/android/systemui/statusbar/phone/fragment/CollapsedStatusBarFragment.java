@@ -17,6 +17,7 @@ package com.android.systemui.statusbar.phone.fragment;
 import android.annotation.Nullable;
 import android.annotation.SuppressLint;
 import android.app.Fragment;
+import android.content.Context;
 import android.database.ContentObserver;
 import android.os.Bundle;
 import android.os.Parcelable;
@@ -30,6 +31,7 @@ import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 import android.widget.LinearLayout;
 
 import androidx.annotation.VisibleForTesting;
@@ -71,6 +73,7 @@ import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallController;
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallListener;
 import com.android.systemui.dynamicpill.DynamicPillController;
 import com.android.systemui.dynamicpill.DynamicPillCallback;
+import com.android.systemui.dynamicpill.DynamicPillExpandedDialog;
 import com.android.systemui.dynamicpill.DynamicPillView;
 import com.android.systemui.dynamicpill.PillState;
 import com.android.systemui.statusbar.pipeline.shared.ui.binder.CollapsedStatusBarViewBinder;
@@ -128,6 +131,8 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private LinearLayout mEndSideContent;
     private View mOngoingCallChip;
     private DynamicPillView mDynamicPillView;
+    private DynamicPillExpandedDialog mExpandedDialog;
+    private View mClockView;
     private View mNotificationIconAreaInner;
     private View mNetworkTrafficHolderStart;
     private View mNetworkTrafficHolderCenter;
@@ -181,14 +186,28 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         public void onPillStateChanged(PillState state) {
             if (mDynamicPillView != null) {
                 mDynamicPillView.updateState(state);
-                mDynamicPillView.setVisibility(
-                    state.getHasActiveSessions() ? View.VISIBLE : View.GONE);
+                boolean pillActive = state.getHasActiveSessions();
+                mDynamicPillView.setVisibility(pillActive ? View.VISIBLE : View.GONE);
+                // Hide the system clock when pill is active, show it otherwise
+                if (mClockView != null) {
+                    mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
+                }
             }
         }
 
         @Override
         public void onPillClicked(PillState state) {
             mDynamicPillController.toggleExpanded();
+            boolean expanded = mDynamicPillController.getState().isExpanded();
+            if (expanded && mDynamicPillController.getState().getHasActiveSessions()) {
+                if (mExpandedDialog == null) {
+                    WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+                    mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
+                }
+                mExpandedDialog.show(mDynamicPillController.getState());
+            } else if (mExpandedDialog != null) {
+                mExpandedDialog.dismiss();
+            }
         }
     };
     private OperatorNameViewController mOperatorNameViewController;
@@ -388,8 +407,21 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mClockController = mStatusBar.getClockController();
         mOngoingCallChip = mStatusBar.findViewById(R.id.ongoing_call_chip);
         mDynamicPillView = mStatusBar.findViewById(R.id.dynamic_pill);
+        mClockView = mStatusBar.findViewById(R.id.clock);
         if (mDynamicPillView != null) {
-            mDynamicPillView.setPillClickListener(v -> mDynamicPillController.toggleExpanded());
+            mDynamicPillView.setPillClickListener(v -> {
+                mDynamicPillController.toggleExpanded();
+                boolean expanded = mDynamicPillController.getState().isExpanded();
+                if (expanded && mDynamicPillController.getState().getHasActiveSessions()) {
+                    if (mExpandedDialog == null) {
+                        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+                        mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
+                    }
+                    mExpandedDialog.show(mDynamicPillController.getState());
+                } else if (mExpandedDialog != null) {
+                    mExpandedDialog.dismiss();
+                }
+            });
         }
         showEndSideContent(false);
         showClock(false);
