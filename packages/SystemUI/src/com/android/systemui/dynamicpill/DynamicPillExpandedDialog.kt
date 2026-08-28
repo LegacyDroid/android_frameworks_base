@@ -389,9 +389,9 @@ class DynamicPillExpandedDialog(
     private fun resolveSurfaceColor(): Int {
         val tv = TypedValue()
         return if (context.theme.resolveAttribute(
-                com.android.internal.R.attr.colorSurface, tv, true
+                com.android.internal.R.attr.colorAccentPrimary, tv, true
             )
-        ) tv.data else 0xFF303030.toInt()
+        ) tv.data else 0xFF6750A4.toInt()
     }
 
     private fun dpToPx(dp: Int): Int = TypedValue.applyDimension(
