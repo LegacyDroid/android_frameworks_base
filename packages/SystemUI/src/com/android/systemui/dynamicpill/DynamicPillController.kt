@@ -23,6 +23,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.util.Log
+import com.android.systemui.CoreStartable
 import com.android.systemui.Dumpable
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -50,7 +51,7 @@ class DynamicPillController @Inject constructor(
     private val recordingController: RecordingController,
     private val mediaSessionManager: MediaSessionManager,
     private val dumpManager: DumpManager,
-) : Dumpable {
+) : CoreStartable, Dumpable {
 
     companion object {
         private const val TAG = "DynamicPillController"
@@ -119,7 +120,7 @@ class DynamicPillController @Inject constructor(
     }
 
     /** Start listening for all data sources. Must be called on main thread. */
-    fun start() {
+    override fun start() {
         Log.d(TAG, "Starting DynamicPillController")
         mediaDataManager.addListener(mediaDataListener)
         recordingController.addCallback(recordingStateCallback)

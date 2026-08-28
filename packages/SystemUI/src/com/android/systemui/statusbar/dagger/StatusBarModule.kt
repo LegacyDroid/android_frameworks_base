@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.dagger
 
 import com.android.systemui.CoreStartable
+import com.android.systemui.dynamicpill.DynamicPillController
 import com.android.systemui.statusbar.data.StatusBarDataLayerModule
 import com.android.systemui.statusbar.phone.LightBarController
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallController
@@ -45,4 +46,9 @@ abstract class StatusBarModule {
     @IntoMap
     @ClassKey(LightBarController::class)
     abstract fun bindLightBarController(impl: LightBarController): CoreStartable
+
+    @Binds
+    @IntoMap
+    @ClassKey(DynamicPillController::class)
+    abstract fun bindDynamicPillController(impl: DynamicPillController): CoreStartable
 }

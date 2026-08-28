@@ -69,6 +69,10 @@ import com.android.systemui.statusbar.phone.fragment.dagger.StatusBarFragmentCom
 import com.android.systemui.statusbar.phone.fragment.dagger.StatusBarFragmentComponent.Startable;
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallController;
 import com.android.systemui.statusbar.phone.ongoingcall.OngoingCallListener;
+import com.android.systemui.dynamicpill.DynamicPillController;
+import com.android.systemui.dynamicpill.DynamicPillCallback;
+import com.android.systemui.dynamicpill.DynamicPillView;
+import com.android.systemui.dynamicpill.PillState;
 import com.android.systemui.statusbar.pipeline.shared.ui.binder.CollapsedStatusBarViewBinder;
 import com.android.systemui.statusbar.pipeline.shared.ui.binder.StatusBarVisibilityChangeListener;
 import com.android.systemui.statusbar.pipeline.shared.ui.viewmodel.CollapsedStatusBarViewModel;
@@ -123,6 +127,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private MultiSourceMinAlphaController mNetworkTrafficEndAlphaController;
     private LinearLayout mEndSideContent;
     private View mOngoingCallChip;
+    private DynamicPillView mDynamicPillView;
     private View mNotificationIconAreaInner;
     private View mNetworkTrafficHolderStart;
     private View mNetworkTrafficHolderCenter;
@@ -140,6 +145,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private final CollapsedStatusBarFragmentLogger mCollapsedStatusBarFragmentLogger;
     private final OperatorNameViewController.Factory mOperatorNameViewControllerFactory;
     private final OngoingCallController mOngoingCallController;
+    private final DynamicPillController mDynamicPillController;
     private final SystemStatusAnimationScheduler mAnimationScheduler;
     private final StatusBarLocationPublisher mLocationPublisher;
     private final NotificationIconAreaController mNotificationIconAreaController;
@@ -167,6 +173,22 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         @Override
         public void onOngoingCallStateChanged(boolean animate) {
             updateStatusBarVisibilities(animate);
+        }
+    };
+
+    private final DynamicPillCallback mDynamicPillCallback = new DynamicPillCallback() {
+        @Override
+        public void onPillStateChanged(PillState state) {
+            if (mDynamicPillView != null) {
+                mDynamicPillView.updateState(state);
+                mDynamicPillView.setVisibility(
+                    state.getHasActiveSessions() ? View.VISIBLE : View.GONE);
+            }
+        }
+
+        @Override
+        public void onPillClicked(PillState state) {
+            mDynamicPillController.toggleExpanded();
         }
     };
     private OperatorNameViewController mOperatorNameViewController;
@@ -225,6 +247,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     public CollapsedStatusBarFragment(
             StatusBarFragmentComponent.Factory statusBarFragmentComponentFactory,
             OngoingCallController ongoingCallController,
+            DynamicPillController dynamicPillController,
             SystemStatusAnimationScheduler animationScheduler,
             StatusBarLocationPublisher locationPublisher,
             NotificationIconAreaController notificationIconAreaController,
@@ -250,6 +273,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             DemoModeController demoModeController) {
         mStatusBarFragmentComponentFactory = statusBarFragmentComponentFactory;
         mOngoingCallController = ongoingCallController;
+        mDynamicPillController = dynamicPillController;
         mAnimationScheduler = animationScheduler;
         mLocationPublisher = locationPublisher;
         mNotificationIconAreaController = notificationIconAreaController;
@@ -363,6 +387,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                 new MultiSourceMinAlphaController(mNetworkTrafficHolderEnd);
         mClockController = mStatusBar.getClockController();
         mOngoingCallChip = mStatusBar.findViewById(R.id.ongoing_call_chip);
+        mDynamicPillView = mStatusBar.findViewById(R.id.dynamic_pill);
+        if (mDynamicPillView != null) {
+            mDynamicPillView.setPillClickListener(v -> mDynamicPillController.toggleExpanded());
+        }
         showEndSideContent(false);
         showClock(false);
         initOperatorName();
@@ -427,6 +455,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mCommandQueue.addCallback(this);
         mStatusBarStateController.addCallback(this);
         initOngoingCallChip();
+        initDynamicPill();
         mAnimationScheduler.addCallback(this);
 
         mSecureSettings.registerContentObserverForUser(
@@ -442,6 +471,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mCommandQueue.removeCallback(this);
         mStatusBarStateController.removeCallback(this);
         mOngoingCallController.removeCallback(mOngoingCallListener);
+        mDynamicPillController.removeCallback(mDynamicPillCallback);
         mAnimationScheduler.removeCallback(this);
         mSecureSettings.unregisterContentObserver(mVolumeSettingObserver);
     }
@@ -854,6 +884,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private void initOngoingCallChip() {
         mOngoingCallController.addCallback(mOngoingCallListener);
         mOngoingCallController.setChipView(mOngoingCallChip);
+    }
+
+    private void initDynamicPill() {
+        mDynamicPillController.addCallback(mDynamicPillCallback);
     }
 
     @Override
