@@ -187,12 +187,15 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             if (mDynamicPillView != null) {
                 mDynamicPillView.updateState(state);
                 boolean pillActive = state.getHasActiveSessions();
-                mDynamicPillView.setVisibility(pillActive ? View.VISIBLE : View.GONE);
+                boolean expanded = state.isExpanded();
+                // Hide small pill when expanded, show when collapsed and active
+                mDynamicPillView.setVisibility(
+                    pillActive && !expanded ? View.VISIBLE : View.GONE);
                 if (mClockView != null) {
                     mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
                 }
                 // Show/hide expanded dialog based on isExpanded state
-                if (state.isExpanded() && pillActive) {
+                if (expanded && pillActive) {
                     if (mExpandedDialog == null) {
                         WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
                         mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);

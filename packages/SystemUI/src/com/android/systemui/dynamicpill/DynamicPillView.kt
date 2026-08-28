@@ -89,11 +89,20 @@ class DynamicPillView @JvmOverloads constructor(
         currentState = state
 
         if (state.hasActiveSessions && !previousHasSessions) {
+            // First time showing pill (clock → pill transition with animation)
             transitionToPill(state)
         } else if (!state.hasActiveSessions && previousHasSessions) {
+            // Last session removed (pill → clock transition with animation)
             transitionToClock()
         } else if (state.hasActiveSessions) {
+            // Re-appearing after dialog dismiss or content update — just show instantly
             updatePillContent(state)
+            clockText.visibility = View.GONE
+            pillText.visibility = View.VISIBLE
+            pillText.alpha = 1f
+            this.alpha = 1f
+            scaleX = 1f
+            scaleY = 1f
         }
     }
 

@@ -143,6 +143,18 @@ class DynamicPillExpandedDialog(
             setPadding(pad, pad, pad, pad)
         }
 
+        // Tap outside cards to dismiss
+        root.setOnTouchListener { _, event ->
+            // Dismiss when tapping anywhere outside the cards container
+            dismiss()
+            true
+        }
+        // Let cards container consume its own touches (prevents dismiss when tapping a card)
+        cardsContainer.setOnTouchListener { v, event ->
+            v.performClick()
+            false
+        }
+
         populateCards(state, cardsContainer)
         root.addView(cardsContainer, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -187,7 +199,7 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = media.title.ifEmpty { "Unknown" }
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFF000000.toInt())
             textSize = 14f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -195,7 +207,7 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = media.artist
-            setTextColor(0xB3FFFFFF.toInt())
+            setTextColor(0x80000000.toInt())
             textSize = 12f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -232,13 +244,13 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = if (clock.isStopwatch) "Stopwatch" else "Timer"
-            setTextColor(0xB3FFFFFF.toInt())
+            setTextColor(0x80000000.toInt())
             textSize = 12f
         })
 
         info.addView(TextView(context).apply {
             text = formatTime(clock.elapsedMillis)
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFF000000.toInt())
             textSize = 20f
         })
 
@@ -277,13 +289,13 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = if (recording.isScreenRecord) "Screen Recording" else "Recording"
-            setTextColor(0xB3FFFFFF.toInt())
+            setTextColor(0x80000000.toInt())
             textSize = 12f
         })
 
         info.addView(TextView(context).apply {
             text = formatTime(recording.elapsedMillis)
-            setTextColor(0xFFFFFFFF.toInt())
+            setTextColor(0xFF000000.toInt())
             textSize = 20f
         })
 
@@ -316,7 +328,7 @@ class DynamicPillExpandedDialog(
             setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
             setOnClickListener { onClick() }
             colorFilter = android.graphics.PorterDuffColorFilter(
-                0xFFFFFFFF.toInt(),
+                0xFF000000.toInt(),
                 android.graphics.PorterDuff.Mode.SRC_IN,
             )
         }

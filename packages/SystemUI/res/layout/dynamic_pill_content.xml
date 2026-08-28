@@ -38,6 +38,7 @@
         android:layout_height="match_parent"
         android:layout_gravity="center_vertical"
         android:textAppearance="@style/TextAppearance.StatusBar.Clock"
+        android:textColor="@android:color/black"
         android:singleLine="true"
         android:gravity="center_vertical"
         android:paddingStart="8dp"
