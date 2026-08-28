@@ -19,5 +19,4 @@ package com.android.systemui.dynamicpill
 /** Callback interface for DynamicPillController state changes. */
 interface DynamicPillCallback {
     fun onPillStateChanged(state: PillState) {}
-    fun onPillClicked(state: PillState) {}
 }

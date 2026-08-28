@@ -174,7 +174,6 @@ class DynamicPillController @Inject constructor(
     fun toggleExpanded() {
         currentState = currentState.copy(isExpanded = !currentState.isExpanded)
         dispatchState()
-        callbacks.forEach { it.onPillClicked(currentState) }
     }
 
     /** Set expanded state externally (e.g., from touch handling). */

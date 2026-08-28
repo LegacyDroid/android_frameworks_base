@@ -188,25 +188,19 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                 mDynamicPillView.updateState(state);
                 boolean pillActive = state.getHasActiveSessions();
                 mDynamicPillView.setVisibility(pillActive ? View.VISIBLE : View.GONE);
-                // Hide the system clock when pill is active, show it otherwise
                 if (mClockView != null) {
                     mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
                 }
-            }
-        }
-
-        @Override
-        public void onPillClicked(PillState state) {
-            mDynamicPillController.toggleExpanded();
-            boolean expanded = mDynamicPillController.getState().isExpanded();
-            if (expanded && mDynamicPillController.getState().getHasActiveSessions()) {
-                if (mExpandedDialog == null) {
-                    WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-                    mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
+                // Show/hide expanded dialog based on isExpanded state
+                if (state.isExpanded() && pillActive) {
+                    if (mExpandedDialog == null) {
+                        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+                        mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
+                    }
+                    mExpandedDialog.show(state);
+                } else if (mExpandedDialog != null) {
+                    mExpandedDialog.dismiss();
                 }
-                mExpandedDialog.show(mDynamicPillController.getState());
-            } else if (mExpandedDialog != null) {
-                mExpandedDialog.dismiss();
             }
         }
     };
@@ -409,19 +403,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         mDynamicPillView = mStatusBar.findViewById(R.id.dynamic_pill);
         mClockView = mStatusBar.findViewById(R.id.clock);
         if (mDynamicPillView != null) {
-            mDynamicPillView.setPillClickListener(v -> {
-                mDynamicPillController.toggleExpanded();
-                boolean expanded = mDynamicPillController.getState().isExpanded();
-                if (expanded && mDynamicPillController.getState().getHasActiveSessions()) {
-                    if (mExpandedDialog == null) {
-                        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-                        mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
-                    }
-                    mExpandedDialog.show(mDynamicPillController.getState());
-                } else if (mExpandedDialog != null) {
-                    mExpandedDialog.dismiss();
-                }
-            });
+            mDynamicPillView.setPillClickListener(v -> mDynamicPillController.toggleExpanded());
         }
         showEndSideContent(false);
         showClock(false);
