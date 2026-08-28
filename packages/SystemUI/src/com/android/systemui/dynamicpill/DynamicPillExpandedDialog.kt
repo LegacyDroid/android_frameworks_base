@@ -19,6 +19,7 @@ package com.android.systemui.dynamicpill
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
+import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
@@ -28,7 +29,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.FastOutSlowInInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -102,7 +103,7 @@ class DynamicPillExpandedDialog(
         AnimatorSet().apply {
             playTogether(fadeOut, scaleDown, scaleDownY)
             duration = ANIM_DURATION_MS / 2
-            interpolator = FastOutSlowInInterpolator()
+            interpolator = DecelerateInterpolator(2f)
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     removeViewFromWindow(view)
@@ -208,7 +209,7 @@ class DynamicPillExpandedDialog(
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        controls.addView(makeBtn(R.drawable.ic_media_previous) { onActionListener?.onMediaPrevious() })
+        controls.addView(makeBtn(R.drawable.ic_media_prev) { onActionListener?.onMediaPrevious() })
         controls.addView(makeBtn(R.drawable.ic_media_play) { onActionListener?.onMediaPlayPause() })
         controls.addView(makeBtn(R.drawable.ic_media_next) { onActionListener?.onMediaNext() })
 
@@ -295,7 +296,7 @@ class DynamicPillExpandedDialog(
 
         val pauseRes = if (recording.isPaused) R.drawable.ic_media_play else R.drawable.ic_media_pause
         controls.addView(makeBtn(pauseRes) { onActionListener?.onRecordingPauseResume() })
-        controls.addView(makeBtn(R.drawable.ic_delete) { onActionListener?.onRecordingStop() })
+        controls.addView(makeBtn(R.drawable.ic_media_pause) { onActionListener?.onRecordingStop() })
 
         card.addView(controls)
         return card
@@ -326,7 +327,7 @@ class DynamicPillExpandedDialog(
             cornerRadius = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, CARD_CORNER_RADIUS_DP, resources.displayMetrics,
             )
-            setColor(resolveSurfaceContainerColor())
+            setColor(resolveSurfaceColor())
         }
     }
 
@@ -347,7 +348,7 @@ class DynamicPillExpandedDialog(
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-            android.view.PixelFormat.TRANSLUCENT,
+            PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
             x = marginPx
@@ -367,7 +368,7 @@ class DynamicPillExpandedDialog(
                 ObjectAnimator.ofFloat(view, View.SCALE_Y, 0.9f, 1f),
             )
             duration = ANIM_DURATION_MS
-            interpolator = FastOutSlowInInterpolator()
+            interpolator = DecelerateInterpolator(2f)
             start()
         }
     }
@@ -385,10 +386,10 @@ class DynamicPillExpandedDialog(
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
-    private fun resolveSurfaceContainerColor(): Int {
+    private fun resolveSurfaceColor(): Int {
         val tv = TypedValue()
         return if (context.theme.resolveAttribute(
-                com.google.android.material.R.attr.colorSurfaceContainerHigh, tv, true
+                com.android.internal.R.attr.colorSurface, tv, true
             )
         ) tv.data else 0xFF303030.toInt()
     }

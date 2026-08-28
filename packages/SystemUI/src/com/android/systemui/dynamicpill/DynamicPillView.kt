@@ -19,15 +19,12 @@ package com.android.systemui.dynamicpill
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.LayoutInflater
-import android.view.MotionEvent
 import android.view.View
-import android.view.animation.FastOutSlowInInterpolator
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.android.systemui.R
@@ -36,7 +33,7 @@ import java.util.Locale
 /**
  * Compact pill view that replaces the status bar clock when active sessions exist.
  *
- * Displays a Material You-themed capsule showing the highest-priority session data.
+ * Displays a Material You-themed capsule showing the most recently triggered session data.
  * Handles tap to expand and morphing animation between clock text and pill state.
  */
 class DynamicPillView @JvmOverloads constructor(
@@ -58,7 +55,7 @@ class DynamicPillView @JvmOverloads constructor(
             resources.displayMetrics,
         )
         cornerRadius = cornerRadiusPx
-        setColor(resolveSurfaceContainerColor())
+        setColor(resolveSurfaceColor())
     }
 
     private val pillText: TextView
@@ -67,13 +64,13 @@ class DynamicPillView @JvmOverloads constructor(
     private var currentState: PillState = PillState()
     private var onPillClickListener: OnClickListener? = null
 
-    private val interpolator = FastOutSlowInInterpolator()
+    private val interpolator = DecelerateInterpolator(2f)
 
     init {
         val inflater = LayoutInflater.from(context)
         inflater.inflate(R.layout.dynamic_pill_content, this, true)
-        pillText = findViewById(R.id.dynamic_pill_text)
-        clockText = findViewById(R.id.dynamic_pill_clock_text)
+        pillText = findViewById(R.id.dynamic_pill_text)!!
+        clockText = findViewById(R.id.dynamic_pill_clock_text)!!
 
         background = pillBackground
         clipToPadding = false
@@ -165,21 +162,13 @@ class DynamicPillView @JvmOverloads constructor(
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
-    private fun resolveSurfaceContainerColor(): Int {
+    private fun resolveSurfaceColor(): Int {
         val typedValue = TypedValue()
         val theme = context.theme
-        return if (theme.resolveAttribute(com.google.android.material.R.attr.colorSurfaceContainerHigh, typedValue, true)) {
+        return if (theme.resolveAttribute(com.android.internal.R.attr.colorSurface, typedValue, true)) {
             typedValue.data
         } else {
             0xFF303030.toInt()
         }
-    }
-
-    override fun dispatchDraw(canvas: Canvas) {
-        super.dispatchDraw(canvas)
-    }
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 }

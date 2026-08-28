@@ -16,12 +16,12 @@
 
 package com.android.systemui.dynamicpill
 
+import android.content.ComponentName
 import android.content.Context
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import com.android.systemui.Dumpable
 import com.android.systemui.dagger.SysUISingleton
@@ -37,8 +37,8 @@ import javax.inject.Inject
 /**
  * Controller for the Dynamic Pill status bar feature.
  *
- * Manages subscriptions to media, clock (timer/stopwatch), and recording sessions,
- * applying the priority hierarchy: Recording > Clock > Media.
+ * Manages subscriptions to media, clock (timer/stopwatch), and recording sessions.
+ * Compact state shows the most recently triggered session.
  *
  * State updates are dispatched to registered [DynamicPillCallback] instances.
  */
@@ -76,7 +76,7 @@ class DynamicPillController @Inject constructor(
             oldKey: String?,
             data: com.android.systemui.media.controls.shared.model.MediaData,
             immediately: Boolean,
-            receivedSmartspaceCardLatency: Long,
+            receivedSmartspaceCardLatency: Int,
             isSsReactivated: Boolean,
         ) {
             if (data.isPlaying == true) {
@@ -123,10 +123,11 @@ class DynamicPillController @Inject constructor(
         Log.d(TAG, "Starting DynamicPillController")
         mediaDataManager.addListener(mediaDataListener)
         recordingController.addCallback(recordingStateCallback)
-        mediaSessionManager.addOnActiveSessionsChangedListener(
-            { controllers -> onMediaSessionsChanged(controllers) },
-            mainHandler,
-        )
+        val listener = MediaSessionManager.OnActiveSessionsChangedListener { controllers ->
+            onMediaSessionsChanged(controllers)
+        }
+        val componentName = ComponentName(context, "com.android.systemui.media.MediaSessionBasedFilter")
+        mediaSessionManager.addOnActiveSessionsChangedListener(listener, componentName)
         startClockTicker()
     }
 
@@ -196,15 +197,13 @@ class DynamicPillController @Inject constructor(
         }
         if (playing != null) {
             val metadata = playing.metadata
-            val state = playing.playbackState
             val session = PillSession.Media(
                 packageName = playing.packageName,
                 title = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE) ?: "",
                 artist = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST) ?: "",
                 isPlaying = true,
-                duration = state?.duration ?: 0L,
-                position = state?.position ?: 0L,
-                albumArt = metadata?.getBitmap(android.media.MediaMetadata.METADATA_KEY_ALBUM_ART),
+                duration = 0L,
+                position = 0L,
             )
             addSession(session)
         } else {
@@ -258,12 +257,12 @@ class DynamicPillController @Inject constructor(
         addSession(updated)
     }
 
-    override fun dump(pw: PrintWriter, prefix: String) {
-        pw.println("${prefix}$DUMP_PREFIX:")
-        pw.println("${prefix}  activeSessions=${activeSessions.size}")
+    override fun dump(pw: PrintWriter, args: Array<String>) {
+        pw.println("$DUMP_PREFIX:")
+        pw.println("  activeSessions=${activeSessions.size}")
         activeSessions.forEach { (source, session) ->
-            pw.println("${prefix}    $source: $session")
+            pw.println("    $source: $session")
         }
-        pw.println("${prefix}  state=$currentState")
+        pw.println("  state=$currentState")
     }
 }

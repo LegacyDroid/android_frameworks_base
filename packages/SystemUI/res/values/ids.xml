@@ -276,4 +276,7 @@
     <!-- Id for the udfps accessibility overlay -->
     <item type="id" name="udfps_accessibility_overlay" />
     <item type="id" name="udfps_accessibility_overlay_top_guideline" />
+
+    <!-- Dynamic Pill expanded card container -->
+    <item type="id" name="expanded_cards_container" />
 </resources>
