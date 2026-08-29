@@ -27,6 +27,7 @@ import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.android.systemui.R
@@ -67,7 +68,7 @@ class DynamicPillView @JvmOverloads constructor(
     private var onPillClickListener: OnClickListener? = null
     private var activeAnimator: AnimatorSet? = null
 
-    private val interpolator = DecelerateInterpolator(2f)
+    private val interpolator = OvershootInterpolator(2.0f)
 
     init {
         val inflater = LayoutInflater.from(context)

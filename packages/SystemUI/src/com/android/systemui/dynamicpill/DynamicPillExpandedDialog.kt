@@ -30,6 +30,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -68,9 +69,9 @@ class DynamicPillExpandedDialog(
 
     fun isShowing(): Boolean = isShowing
 
-    fun setOnMorphListeners(started: () -> Unit, finished: () -> Unit) {
-        onMorphStarted = started
-        onMorphFinished = finished
+    fun setOnMorphListeners(started: Runnable, finished: Runnable) {
+        onMorphStarted = { started.run() }
+        onMorphFinished = { finished.run() }
     }
 
     interface ActionListener {
@@ -135,25 +136,37 @@ class DynamicPillExpandedDialog(
 
             onMorphStarted?.invoke()
 
-            val scaleX = ObjectAnimator.ofFloat(container, View.SCALE_X, 1f, targetScaleX)
-            val scaleY = ObjectAnimator.ofFloat(container, View.SCALE_Y, 1f, targetScaleY)
-            val transX = ObjectAnimator.ofFloat(container, View.TRANSLATION_X, 0f, targetTranslationX)
-            val transY = ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, 0f, targetTranslationY)
+            val childCount = container.childCount
+            val baseDelay = 20L
+            val decelerate = DecelerateInterpolator(3f)
 
-            AnimatorSet().apply {
-                playTogether(scaleX, scaleY, transX, transY)
-                duration = ANIM_DURATION_MS / 2
-                interpolator = DecelerateInterpolator(2f)
-                addListener(object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        onMorphFinished?.invoke()
-                        removeViewFromWindow(view)
-                        onDismissListener?.invoke()
-                        isDismissing = false
-                    }
-                })
-                start()
+            for (i in 0 until childCount) {
+                val child = container.getChildAt(i)
+                val reverseIndex = (childCount - 1 - i)
+                child.animate()
+                    .alpha(0f)
+                    .scaleX(0.85f)
+                    .scaleY(0.85f)
+                    .setDuration(ANIM_DURATION_MS / 2)
+                    .setStartDelay(reverseIndex * baseDelay)
+                    .setInterpolator(decelerate)
+                    .start()
             }
+
+            container.animate()
+                .scaleX(targetScaleX)
+                .scaleY(targetScaleY)
+                .translationX(targetTranslationX)
+                .translationY(targetTranslationY)
+                .setDuration(ANIM_DURATION_MS / 2)
+                .setInterpolator(DecelerateInterpolator(2f))
+                .withEndAction {
+                    onMorphFinished?.invoke()
+                    removeViewFromWindow(view)
+                    onDismissListener?.invoke()
+                    isDismissing = false
+                }
+                .start()
         } else {
             removeViewFromWindow(view)
             onDismissListener?.invoke()
@@ -229,13 +242,35 @@ class DynamicPillExpandedDialog(
 
                 onMorphStarted?.invoke()
 
+                val overshoot = OvershootInterpolator(1.4f)
+                val childCount = container.childCount
+                val baseDelay = 30L
+
+                for (i in 0 until childCount) {
+                    val child = container.getChildAt(i)
+                    child.alpha = 0f
+                    child.scaleX = 0.6f
+                    child.scaleY = 0.6f
+                    child.translationY = 24f
+
+                    child.animate()
+                        .alpha(1f)
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .translationY(0f)
+                        .setDuration(ANIM_DURATION_MS)
+                        .setStartDelay(40L + i * baseDelay)
+                        .setInterpolator(overshoot)
+                        .start()
+                }
+
                 container.animate()
                     .scaleX(1f)
                     .scaleY(1f)
                     .translationX(0f)
                     .translationY(0f)
                     .setDuration(ANIM_DURATION_MS)
-                    .setInterpolator(DecelerateInterpolator(2f))
+                    .setInterpolator(overshoot)
                     .withEndAction {
                         onMorphFinished?.invoke()
                     }
