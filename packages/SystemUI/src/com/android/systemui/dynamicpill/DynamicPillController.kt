@@ -69,7 +69,7 @@ class DynamicPillController @Inject constructor(
 
     private val callbacks = CopyOnWriteArrayList<DynamicPillCallback>()
     private val activeSessions = mutableMapOf<PillSourceType, PillSession>()
-    private var currentState = PillState()
+    @Volatile private var currentState = PillState()
     private var clockTickerRunning = false
     private var deskclockPollingRunning = false
     private val notificationManager = context.getSystemService(NotificationManager::class.java)

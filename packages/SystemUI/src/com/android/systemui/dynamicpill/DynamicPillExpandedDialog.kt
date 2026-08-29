@@ -57,6 +57,8 @@ class DynamicPillExpandedDialog(
 
     private var containerView: View? = null
     private var isShowing = false
+    private var isDismissing = false
+    private var activeAnimator: AnimatorSet? = null
     private var onActionListener: ActionListener? = null
     private var onDismissListener: (() -> Unit)? = null
 
@@ -82,6 +84,7 @@ class DynamicPillExpandedDialog(
     }
 
     fun show(state: PillState) {
+        if (isDismissing) return
         if (isShowing) {
             updateContent(state)
             return
@@ -101,6 +104,13 @@ class DynamicPillExpandedDialog(
         if (!isShowing) return
         val view = containerView ?: return
 
+        isDismissing = true
+        isShowing = false
+        containerView = null
+
+        activeAnimator?.cancel()
+        activeAnimator = null
+
         val fadeOut = ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0f)
         val scaleDown = ObjectAnimator.ofFloat(view, View.SCALE_X, 1f, 0.9f)
         val scaleDownY = ObjectAnimator.ofFloat(view, View.SCALE_Y, 1f, 0.9f)
@@ -112,15 +122,14 @@ class DynamicPillExpandedDialog(
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     removeViewFromWindow(view)
+                    onDismissListener?.invoke()
+                    isDismissing = false
                 }
             })
             start()
         }
 
-        isShowing = false
-        containerView = null
         onActionListener?.onDismiss()
-        onDismissListener?.invoke()
     }
 
     fun updateContent(state: PillState) {
@@ -379,7 +388,8 @@ class DynamicPillExpandedDialog(
         view.scaleX = 0.9f
         view.scaleY = 0.9f
 
-        AnimatorSet().apply {
+        activeAnimator?.cancel()
+        activeAnimator = AnimatorSet().apply {
             playTogether(
                 ObjectAnimator.ofFloat(view, View.ALPHA, 0f, 1f),
                 ObjectAnimator.ofFloat(view, View.SCALE_X, 0.9f, 1f),
