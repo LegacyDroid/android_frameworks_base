@@ -26,19 +26,12 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.android.systemui.R
 import java.util.Locale
 
-/**
- * Compact pill view that replaces the status bar clock when active sessions exist.
- *
- * Displays a Material You-themed capsule showing the most recently triggered session data.
- * Handles tap to expand and morphing animation between clock text and pill state.
- */
 class DynamicPillView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -48,7 +41,7 @@ class DynamicPillView @JvmOverloads constructor(
 
     companion object {
         private const val CORNER_RADIUS_DP = 100f
-        private const val ANIM_DURATION_MS = 250L
+        private const val ANIM_DURATION_MS = 280L
     }
 
     private val pillBackground = GradientDrawable().apply {
@@ -68,7 +61,8 @@ class DynamicPillView @JvmOverloads constructor(
     private var onPillClickListener: OnClickListener? = null
     private var activeAnimator: AnimatorSet? = null
 
-    private val interpolator = OvershootInterpolator(2.0f)
+    private val expandInterpolator = PathInterpolator(0.34f, 1.4f, 0.64f, 1.0f)
+    private val collapseInterpolator = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
 
     init {
         val inflater = LayoutInflater.from(context)
@@ -93,13 +87,10 @@ class DynamicPillView @JvmOverloads constructor(
         currentState = state
 
         if (state.hasActiveSessions && !previousHasSessions) {
-            // First time showing pill (clock → pill transition with animation)
             transitionToPill(state)
         } else if (!state.hasActiveSessions && previousHasSessions) {
-            // Last session removed (pill → clock transition with animation)
             transitionToClock()
         } else if (state.hasActiveSessions) {
-            // Re-appearing after dialog dismiss or content update — just show instantly
             activeAnimator?.cancel()
             activeAnimator = null
             updatePillContent(state)
@@ -150,7 +141,7 @@ class DynamicPillView @JvmOverloads constructor(
         val animator = AnimatorSet().apply {
             playTogether(fadeOut, fadeIn, scaleUp, scaleUpY)
             duration = ANIM_DURATION_MS
-            interpolator = this@DynamicPillView.interpolator
+            interpolator = expandInterpolator
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     clockText.visibility = View.GONE
@@ -183,7 +174,7 @@ class DynamicPillView @JvmOverloads constructor(
         val animator = AnimatorSet().apply {
             playTogether(fadeOut, fadeIn, scaleDown, scaleDownY)
             duration = ANIM_DURATION_MS
-            interpolator = this@DynamicPillView.interpolator
+            interpolator = collapseInterpolator
             addListener(object : AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: Animator) {
                     pillText.visibility = View.GONE

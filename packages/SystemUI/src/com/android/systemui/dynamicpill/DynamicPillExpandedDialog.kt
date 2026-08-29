@@ -16,10 +16,7 @@
 
 package com.android.systemui.dynamicpill
 
-import android.animation.Animator
-import android.animation.AnimatorListenerAdapter
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
@@ -29,8 +26,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
-import android.view.animation.OvershootInterpolator
+import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
@@ -46,13 +42,20 @@ class DynamicPillExpandedDialog(
     companion object {
         private const val EXPANDED_MARGIN_HORIZONTAL_DP = 20
         private const val CARD_CORNER_RADIUS_DP = 28f
-        private const val ANIM_DURATION_MS = 300L
+        private const val PILL_CORNER_RADIUS_DP = 100f
+        private const val ANIM_DURATION_MS = 380L
+        private const val DISMISS_DURATION_MS = 280L
+
+        private val EASE_OUT = PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f)
+        private val EASE_IN_OUT = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
+        private val BOUNCY = PathInterpolator(0.34f, 1.4f, 0.64f, 1.0f)
+        private val SNAP = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
     }
 
     private var containerView: View? = null
     private var isShowing = false
     private var isDismissing = false
-    private var activeAnimator: AnimatorSet? = null
+    private var activeAnimator: android.animation.Animator? = null
     private var onActionListener: ActionListener? = null
     private var onDismissListener: (() -> Unit)? = null
 
@@ -136,37 +139,67 @@ class DynamicPillExpandedDialog(
 
             onMorphStarted?.invoke()
 
+            val containerBg = container.background as? GradientDrawable
+            val startCornerRadius = containerBg?.cornerRadius ?: dpToPxF(CARD_CORNER_RADIUS_DP)
+            val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
+
             val childCount = container.childCount
-            val baseDelay = 20L
-            val decelerate = DecelerateInterpolator(3f)
+            val cardAlphaAnimators = mutableListOf<android.animation.ObjectAnimator>()
+            val cardScaleXAnimators = mutableListOf<android.animation.ObjectAnimator>()
+            val cardScaleYAnimators = mutableListOf<android.animation.ObjectAnimator>()
 
             for (i in 0 until childCount) {
                 val child = container.getChildAt(i)
                 val reverseIndex = (childCount - 1 - i)
-                child.animate()
-                    .alpha(0f)
-                    .scaleX(0.85f)
-                    .scaleY(0.85f)
-                    .setDuration(ANIM_DURATION_MS / 2)
-                    .setStartDelay(reverseIndex * baseDelay)
-                    .setInterpolator(decelerate)
-                    .start()
+                val delay = reverseIndex * 18L
+
+                cardAlphaAnimators.add(
+                    android.animation.ObjectAnimator.ofFloat(child, View.ALPHA, 1f, 0f).apply {
+                        startDelay = delay
+                    }
+                )
+                cardScaleXAnimators.add(
+                    android.animation.ObjectAnimator.ofFloat(child, View.SCALE_X, 1f, 0.88f).apply {
+                        startDelay = delay
+                    }
+                )
+                cardScaleYAnimators.add(
+                    android.animation.ObjectAnimator.ofFloat(child, View.SCALE_Y, 1f, 0.88f).apply {
+                        startDelay = delay
+                    }
+                )
             }
 
-            container.animate()
-                .scaleX(targetScaleX)
-                .scaleY(targetScaleY)
-                .translationX(targetTranslationX)
-                .translationY(targetTranslationY)
-                .setDuration(ANIM_DURATION_MS / 2)
-                .setInterpolator(DecelerateInterpolator(2f))
-                .withEndAction {
+            val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, 1f, targetScaleX)
+            val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, 1f, targetScaleY)
+            val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, 0f, targetTranslationX)
+            val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, 0f, targetTranslationY)
+
+            val cornerAnimator = ValueAnimator.ofFloat(startCornerRadius, pillCornerPx).apply {
+                addUpdateListener { anim ->
+                    containerBg?.cornerRadius = anim.animatedValue as Float
+                }
+            }
+
+            val animator = android.animation.AnimatorSet()
+            animator.playTogether(
+                scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator,
+                *cardAlphaAnimators.toTypedArray(),
+                *cardScaleXAnimators.toTypedArray(),
+                *cardScaleYAnimators.toTypedArray(),
+            )
+            animator.duration = DISMISS_DURATION_MS
+            animator.interpolator = EASE_IN_OUT
+            animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
                     onMorphFinished?.invoke()
                     removeViewFromWindow(view)
                     onDismissListener?.invoke()
                     isDismissing = false
                 }
-                .start()
+            })
+            activeAnimator = animator
+            animator.start()
         } else {
             removeViewFromWindow(view)
             onDismissListener?.invoke()
@@ -202,7 +235,7 @@ class DynamicPillExpandedDialog(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply {
-            topMargin = dpToPx(8)
+            topMargin = dpToPx(40)
             marginStart = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
             marginEnd = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
         }
@@ -242,9 +275,11 @@ class DynamicPillExpandedDialog(
 
                 onMorphStarted?.invoke()
 
-                val overshoot = OvershootInterpolator(1.4f)
+                val containerBg = container.background as? GradientDrawable
+                val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
+                val targetCornerPx = dpToPxF(CARD_CORNER_RADIUS_DP)
+
                 val childCount = container.childCount
-                val baseDelay = 30L
 
                 for (i in 0 until childCount) {
                     val child = container.getChildAt(i)
@@ -259,22 +294,33 @@ class DynamicPillExpandedDialog(
                         .scaleY(1f)
                         .translationY(0f)
                         .setDuration(ANIM_DURATION_MS)
-                        .setStartDelay(40L + i * baseDelay)
-                        .setInterpolator(overshoot)
+                        .setStartDelay(50L + i * 28L)
+                        .setInterpolator(BOUNCY)
                         .start()
                 }
 
-                container.animate()
-                    .scaleX(1f)
-                    .scaleY(1f)
-                    .translationX(0f)
-                    .translationY(0f)
-                    .setDuration(ANIM_DURATION_MS)
-                    .setInterpolator(overshoot)
-                    .withEndAction {
+                val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, startScaleX, 1f)
+                val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, startScaleY, 1f)
+                val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, startTransX, 0f)
+                val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, startTransY, 0f)
+
+                val cornerAnimator = ValueAnimator.ofFloat(pillCornerPx, targetCornerPx).apply {
+                    addUpdateListener { anim ->
+                        containerBg?.cornerRadius = anim.animatedValue as Float
+                    }
+                }
+
+                val animator = android.animation.AnimatorSet()
+                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator)
+                animator.duration = ANIM_DURATION_MS
+                animator.interpolator = BOUNCY
+                animator.addListener(object : android.animation.AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
                         onMorphFinished?.invoke()
                     }
-                    .start()
+                })
+                activeAnimator = animator
+                animator.start()
             }
         }
     }
@@ -451,7 +497,7 @@ class DynamicPillExpandedDialog(
     private fun createContainerBackground(): GradientDrawable {
         return GradientDrawable().apply {
             cornerRadius = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, CARD_CORNER_RADIUS_DP, resources.displayMetrics,
+                TypedValue.COMPLEX_UNIT_DIP, PILL_CORNER_RADIUS_DP, resources.displayMetrics,
             )
             setColor(resolveSurfaceColor())
         }
@@ -497,6 +543,10 @@ class DynamicPillExpandedDialog(
     private fun dpToPx(dp: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics,
     ).toInt()
+
+    private fun dpToPxF(dp: Float): Float = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics,
+    )
 
     private val resources get() = context.resources
 }
