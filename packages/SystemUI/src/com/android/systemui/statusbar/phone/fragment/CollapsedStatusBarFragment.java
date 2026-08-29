@@ -201,6 +201,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                     mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
                     mExpandedDialog.setOnDismissListener(() -> {
                         mDynamicPillController.setExpanded(false);
+                        if (mDynamicPillView != null) {
+                            mDynamicPillView.setVisibility(View.VISIBLE);
+                            mDynamicPillView.setAlpha(1f);
+                        }
                         return null;
                     });
                 }
@@ -249,27 +253,31 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                         ? mNotificationIconArea.getRight() : -1;
                 mExpandedDialog.setOnMorphListeners(
                     () -> {
+                        mDynamicPillView.setVisibility(View.VISIBLE);
+                        mDynamicPillView.setAlpha(1f);
                         if (oldIconRight >= 0 && mNotificationIconArea != null) {
-                            mNotificationIconArea.post(() -> {
-                                int newRight = mNotificationIconArea.getRight();
-                                int shift = newRight - oldIconRight;
-                                if (shift > 0) {
-                                    mNotificationIconArea.setTranslationX(-shift);
-                                    mNotificationIconArea.animate()
-                                        .translationX(0f)
-                                        .setDuration(280)
-                                        .setInterpolator(new android.view.animation.PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f))
-                                        .start();
-                                }
-                            });
+                            mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
+                                    new android.view.ViewTreeObserver.OnPreDrawListener() {
+                                        @Override
+                                        public boolean onPreDraw() {
+                                            mNotificationIconArea.getViewTreeObserver().removeOnPreDrawListener(this);
+                                            int newRight = mNotificationIconArea.getRight();
+                                            int shift = newRight - oldIconRight;
+                                            if (shift > 0) {
+                                                mNotificationIconArea.setTranslationX(-shift);
+                                                mNotificationIconArea.animate()
+                                                    .translationX(0f)
+                                                    .setDuration(280)
+                                                    .setInterpolator(new android.view.animation.PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f))
+                                                    .start();
+                                            }
+                                            return true;
+                                        }
+                                    });
                         }
                     },
                     () -> {}
                 );
-                if (pillActive) {
-                    mDynamicPillView.setVisibility(View.VISIBLE);
-                    mDynamicPillView.setAlpha(1f);
-                }
                 mExpandedDialog.dismiss();
             } else {
                 mDynamicPillView.setVisibility(

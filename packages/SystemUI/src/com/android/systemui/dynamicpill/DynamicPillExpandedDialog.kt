@@ -243,7 +243,11 @@ class DynamicPillExpandedDialog(
 
         root.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_DOWN) {
-                dismiss()
+                if (onDismissListener != null) {
+                    onDismissListener?.invoke()
+                } else {
+                    dismiss()
+                }
             }
             true
         }
