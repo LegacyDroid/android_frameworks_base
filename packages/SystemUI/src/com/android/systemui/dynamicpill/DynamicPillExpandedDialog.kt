@@ -50,7 +50,7 @@ class DynamicPillExpandedDialog(
 ) {
 
     companion object {
-        private const val EXPANDED_MARGIN_HORIZONTAL_DP = 12
+        private const val EXPANDED_MARGIN_HORIZONTAL_DP = 20
         private const val CARD_CORNER_RADIUS_DP = 28f
         private const val ANIM_DURATION_MS = 300L
     }
@@ -58,6 +58,11 @@ class DynamicPillExpandedDialog(
     private var containerView: View? = null
     private var isShowing = false
     private var onActionListener: ActionListener? = null
+    private var onDismissListener: (() -> Unit)? = null
+
+    fun setOnDismissListener(listener: () -> Unit) {
+        onDismissListener = listener
+    }
 
     interface ActionListener {
         fun onMediaPlayPause() {}
@@ -115,6 +120,7 @@ class DynamicPillExpandedDialog(
         isShowing = false
         containerView = null
         onActionListener?.onDismiss()
+        onDismissListener?.invoke()
     }
 
     fun updateContent(state: PillState) {
@@ -127,10 +133,9 @@ class DynamicPillExpandedDialog(
     // ── View construction ──────────────────────────────────────────────────
 
     private fun buildExpandedView(state: PillState): View {
-        val root = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            clipChildren = false
-            clipToPadding = false
+        // Full-screen transparent overlay — catches taps outside the cards
+        val root = android.widget.FrameLayout(context).apply {
+            // No background = fully transparent, touches pass through to here
         }
 
         val cardsContainer = LinearLayout(context).apply {
@@ -141,25 +146,29 @@ class DynamicPillExpandedDialog(
             background = createContainerBackground()
             val pad = dpToPx(8)
             setPadding(pad, pad, pad, pad)
-        }
-
-        // Tap outside cards to dismiss
-        root.setOnTouchListener { _, event ->
-            // Dismiss when tapping anywhere outside the cards container
-            dismiss()
-            true
-        }
-        // Let cards container consume its own touches (prevents dismiss when tapping a card)
-        cardsContainer.setOnTouchListener { v, event ->
-            v.performClick()
-            false
+            // Consume all touches on the cards so root's listener doesn't fire
+            isClickable = true
+            isFocusable = true
         }
 
         populateCards(state, cardsContainer)
-        root.addView(cardsContainer, LinearLayout.LayoutParams(
+
+        // Cards positioned at top with horizontal margin
+        val containerParams = android.widget.FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-        ))
+        ).apply {
+            topMargin = dpToPx(8)
+            marginStart = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
+            marginEnd = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
+        }
+        root.addView(cardsContainer, containerParams)
+
+        // Tap anywhere outside cards → dismiss
+        root.setOnTouchListener { _, _ ->
+            dismiss()
+            true
+        }
 
         return root
     }
@@ -353,18 +362,15 @@ class DynamicPillExpandedDialog(
     }
 
     private fun createLayoutParams(): WindowManager.LayoutParams {
-        val marginPx = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
         return WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = marginPx
-            y = dpToPx(8)
         }
     }
 
