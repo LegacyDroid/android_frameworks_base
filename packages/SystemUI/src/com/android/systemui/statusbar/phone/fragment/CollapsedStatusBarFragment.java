@@ -249,34 +249,43 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                 }
                 mDynamicPillView.setVisibility(View.GONE);
             } else if (mExpandedDialog != null) {
-                final int oldIconRight = mNotificationIconArea != null
-                        ? mNotificationIconArea.getRight() : -1;
                 mExpandedDialog.setOnMorphListeners(
                     () -> {
+                        // Pill stays hidden during the morph; slide the
+                        // notification icons into their post-dismiss position
+                        // concurrently with the shrink animation.
+                        if (mNotificationIconArea != null) {
+                            int pillW = measureDynamicPillWidth();
+                            if (pillW > 0) {
+                                mNotificationIconArea.animate().cancel();
+                                mNotificationIconArea.setTranslationX(0f);
+                                mNotificationIconArea.animate()
+                                    .translationX(pillW)
+                                    .setDuration(280)
+                                    .setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f))
+                                    .start();
+                            }
+                        }
+                    },
+                    () -> {
+                        // Reveal the pill only after the dismiss animation
+                        // completes; drop the manual icon offset once the
+                        // pill takes its layout slot again.
                         mDynamicPillView.setVisibility(View.VISIBLE);
                         mDynamicPillView.setAlpha(1f);
-                        if (oldIconRight >= 0 && mNotificationIconArea != null) {
+                        if (mNotificationIconArea != null) {
                             mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
                                     new android.view.ViewTreeObserver.OnPreDrawListener() {
                                         @Override
                                         public boolean onPreDraw() {
                                             mNotificationIconArea.getViewTreeObserver().removeOnPreDrawListener(this);
-                                            int newRight = mNotificationIconArea.getRight();
-                                            int shift = newRight - oldIconRight;
-                                            if (shift > 0) {
-                                                mNotificationIconArea.setTranslationX(-shift);
-                                                mNotificationIconArea.animate()
-                                                    .translationX(0f)
-                                                    .setDuration(280)
-                                                    .setInterpolator(new android.view.animation.PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f))
-                                                    .start();
-                                            }
+                                            mNotificationIconArea.animate().cancel();
+                                            mNotificationIconArea.setTranslationX(0f);
                                             return true;
                                         }
                                     });
                         }
-                    },
-                    () -> {}
+                    }
                 );
                 mExpandedDialog.dismiss();
             } else {
@@ -285,6 +294,16 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             }
         }
     };
+
+    private int measureDynamicPillWidth() {
+        if (mDynamicPillView == null) {
+            return 0;
+        }
+        int spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
+        mDynamicPillView.measure(spec, spec);
+        return mDynamicPillView.getMeasuredWidth();
+    }
+
     private OperatorNameViewController mOperatorNameViewController;
     private StatusBarSystemEventDefaultAnimator mSystemEventAnimator;
 
