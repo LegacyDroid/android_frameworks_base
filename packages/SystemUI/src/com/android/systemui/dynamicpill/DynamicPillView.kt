@@ -16,6 +16,8 @@
 
 package com.android.systemui.dynamicpill
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
@@ -63,6 +65,7 @@ class DynamicPillView @JvmOverloads constructor(
 
     private var currentState: PillState = PillState()
     private var onPillClickListener: OnClickListener? = null
+    private var activeAnimator: AnimatorSet? = null
 
     private val interpolator = DecelerateInterpolator(2f)
 
@@ -96,6 +99,8 @@ class DynamicPillView @JvmOverloads constructor(
             transitionToClock()
         } else if (state.hasActiveSessions) {
             // Re-appearing after dialog dismiss or content update — just show instantly
+            activeAnimator?.cancel()
+            activeAnimator = null
             updatePillContent(state)
             clockText.visibility = View.GONE
             pillText.visibility = View.VISIBLE
@@ -103,50 +108,96 @@ class DynamicPillView @JvmOverloads constructor(
             this.alpha = 1f
             scaleX = 1f
             scaleY = 1f
+        } else {
+            activeAnimator?.cancel()
+            activeAnimator = null
+            clockText.visibility = View.VISIBLE
+            pillText.visibility = View.GONE
+            clockText.alpha = 1f
+            this.alpha = 1f
+            scaleX = 1f
+            scaleY = 1f
         }
     }
 
     fun showClock() {
+        activeAnimator?.cancel()
+        activeAnimator = null
         clockText.visibility = View.VISIBLE
         pillText.visibility = View.GONE
-        transitionToClock()
+        clockText.alpha = 1f
+        this.alpha = 1f
+        scaleX = 1f
+        scaleY = 1f
     }
 
     private fun transitionToPill(state: PillState) {
+        activeAnimator?.cancel()
+        activeAnimator = null
+
         updatePillContent(state)
 
-        val fadeOut = ObjectAnimator.ofFloat(clockText, View.ALPHA, 1f, 0f)
-        val fadeIn = ObjectAnimator.ofFloat(pillText, View.ALPHA, 0f, 1f)
-        val scaleUp = ObjectAnimator.ofFloat(this, View.SCALE_X, 0.8f, 1f)
-        val scaleUpY = ObjectAnimator.ofFloat(this, View.SCALE_Y, 0.8f, 1f)
+        clockText.visibility = View.VISIBLE
+        pillText.visibility = View.VISIBLE
+        pillBackground.alpha = 255
 
-        AnimatorSet().apply {
+        val fadeOut = ObjectAnimator.ofFloat(clockText, View.ALPHA, clockText.alpha, 0f)
+        val fadeIn = ObjectAnimator.ofFloat(pillText, View.ALPHA, pillText.alpha, 1f)
+        val scaleUp = ObjectAnimator.ofFloat(this, View.SCALE_X, scaleX, 1f)
+        val scaleUpY = ObjectAnimator.ofFloat(this, View.SCALE_Y, scaleY, 1f)
+
+        val animator = AnimatorSet().apply {
             playTogether(fadeOut, fadeIn, scaleUp, scaleUpY)
             duration = ANIM_DURATION_MS
             interpolator = this@DynamicPillView.interpolator
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    clockText.visibility = View.GONE
+                    pillText.visibility = View.VISIBLE
+                    pillText.alpha = 1f
+                    scaleX = 1f
+                    scaleY = 1f
+                    if (activeAnimator == this@apply) {
+                        activeAnimator = null
+                    }
+                }
+            })
             start()
         }
-
-        clockText.visibility = View.GONE
-        pillText.visibility = View.VISIBLE
-        pillBackground.alpha = 255
+        activeAnimator = animator
     }
 
     private fun transitionToClock() {
-        val fadeOut = ObjectAnimator.ofFloat(pillText, View.ALPHA, 1f, 0f)
-        val fadeIn = ObjectAnimator.ofFloat(clockText, View.ALPHA, 0f, 1f)
-        val scaleDown = ObjectAnimator.ofFloat(this, View.SCALE_X, 1f, 0.8f)
-        val scaleDownY = ObjectAnimator.ofFloat(this, View.SCALE_Y, 1f, 0.8f)
+        activeAnimator?.cancel()
+        activeAnimator = null
 
-        AnimatorSet().apply {
+        pillText.visibility = View.VISIBLE
+        clockText.visibility = View.VISIBLE
+
+        val fadeOut = ObjectAnimator.ofFloat(pillText, View.ALPHA, pillText.alpha, 0f)
+        val fadeIn = ObjectAnimator.ofFloat(clockText, View.ALPHA, clockText.alpha, 1f)
+        val scaleDown = ObjectAnimator.ofFloat(this, View.SCALE_X, scaleX, 0.8f)
+        val scaleDownY = ObjectAnimator.ofFloat(this, View.SCALE_Y, scaleY, 0.8f)
+
+        val animator = AnimatorSet().apply {
             playTogether(fadeOut, fadeIn, scaleDown, scaleDownY)
             duration = ANIM_DURATION_MS
             interpolator = this@DynamicPillView.interpolator
+            addListener(object : AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: Animator) {
+                    pillText.visibility = View.GONE
+                    clockText.visibility = View.VISIBLE
+                    clockText.alpha = 1f
+                    scaleX = 1f
+                    scaleY = 1f
+                    if (activeAnimator == this@apply) {
+                        activeAnimator = null
+                    }
+                }
+            })
             start()
         }
-
-        pillText.visibility = View.GONE
-        clockText.visibility = View.VISIBLE
+        activeAnimator = animator
     }
 
     private fun updatePillContent(state: PillState) {

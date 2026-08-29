@@ -184,27 +184,47 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private final DynamicPillCallback mDynamicPillCallback = new DynamicPillCallback() {
         @Override
         public void onPillStateChanged(PillState state) {
-            if (mDynamicPillView != null) {
-                mDynamicPillView.updateState(state);
-                boolean pillActive = state.getHasActiveSessions();
-                boolean expanded = state.isExpanded();
-                // Hide small pill when expanded, show when collapsed and active
+            if (mDynamicPillView == null) return;
+
+            mDynamicPillView.updateState(state);
+            boolean pillActive = state.getHasActiveSessions();
+            boolean expanded = state.isExpanded();
+
+            if (mClockView != null) {
+                mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
+            }
+
+            if (expanded && pillActive) {
+                if (mExpandedDialog == null) {
+                    WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
+                    mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
+                    mExpandedDialog.setOnDismissListener(() -> {
+                        mDynamicPillController.setExpanded(false);
+                        return null;
+                    });
+                    mExpandedDialog.setOnMorphListeners(
+                        () -> {},
+                        () -> mDynamicPillView.setVisibility(View.GONE)
+                    );
+                }
+                if (!mExpandedDialog.isShowing()) {
+                    int[] loc = new int[2];
+                    mDynamicPillView.getLocationOnScreen(loc);
+                    int[] pillRect = { loc[0], loc[1], mDynamicPillView.getWidth(), mDynamicPillView.getHeight() };
+                    mExpandedDialog.show(state, pillRect);
+                } else {
+                    mExpandedDialog.updateContent(state);
+                }
+                mDynamicPillView.setVisibility(View.GONE);
+            } else if (mExpandedDialog != null) {
+                if (pillActive) {
+                    mDynamicPillView.setVisibility(View.VISIBLE);
+                    mDynamicPillView.setAlpha(1f);
+                }
+                mExpandedDialog.dismiss();
+            } else {
                 mDynamicPillView.setVisibility(
-                    pillActive && !expanded ? View.VISIBLE : View.GONE);
-                if (mClockView != null) {
-                    mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
-                }
-                // Show/hide expanded dialog based on isExpanded state
-                if (expanded && pillActive) {
-                    if (mExpandedDialog == null) {
-                        WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
-                        mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
-                        mExpandedDialog.setOnDismissListener(() -> { mDynamicPillController.setExpanded(false); return null; });
-                    }
-                    mExpandedDialog.show(state);
-                } else if (mExpandedDialog != null) {
-                    mExpandedDialog.dismiss();
-                }
+                    pillActive ? View.VISIBLE : View.GONE);
             }
         }
     };

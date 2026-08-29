@@ -16,16 +16,16 @@
 
 package com.android.systemui.dynamicpill
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.AnimatorSet
 import android.animation.ObjectAnimator
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
-import android.os.Handler
-import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -37,13 +37,6 @@ import android.widget.TextView
 import com.android.systemui.R
 import java.util.Locale
 
-/**
- * Expanded floating card for the Dynamic Pill.
- *
- * When the compact pill is tapped, this dialog presents a vertical stack of
- * contextual controls — one card per active session, ordered by recency
- * (newest at the top).
- */
 class DynamicPillExpandedDialog(
     private val context: Context,
     private val windowManager: WindowManager,
@@ -62,8 +55,22 @@ class DynamicPillExpandedDialog(
     private var onActionListener: ActionListener? = null
     private var onDismissListener: (() -> Unit)? = null
 
+    private var pillScreenX = 0
+    private var pillScreenY = 0
+    private var pillWidth = 0
+    private var pillHeight = 0
+    private var onMorphStarted: (() -> Unit)? = null
+    private var onMorphFinished: (() -> Unit)? = null
+
     fun setOnDismissListener(listener: () -> Unit) {
         onDismissListener = listener
+    }
+
+    fun isShowing(): Boolean = isShowing
+
+    fun setOnMorphListeners(started: () -> Unit, finished: () -> Unit) {
+        onMorphStarted = started
+        onMorphFinished = finished
     }
 
     interface ActionListener {
@@ -83,11 +90,18 @@ class DynamicPillExpandedDialog(
         onActionListener = listener
     }
 
-    fun show(state: PillState) {
+    fun show(state: PillState, pillRect: IntArray? = null) {
         if (isDismissing) return
         if (isShowing) {
             updateContent(state)
             return
+        }
+
+        if (pillRect != null && pillRect.size >= 4) {
+            pillScreenX = pillRect[0]
+            pillScreenY = pillRect[1]
+            pillWidth = pillRect[2]
+            pillHeight = pillRect[3]
         }
 
         val view = buildExpandedView(state)
@@ -97,39 +111,54 @@ class DynamicPillExpandedDialog(
         windowManager.addView(view, params)
         isShowing = true
 
-        animateIn(view)
+        morphExpand(view)
     }
 
     fun dismiss() {
-        if (!isShowing) return
+        if (!isShowing || isDismissing) return
         val view = containerView ?: return
 
         isDismissing = true
         isShowing = false
-        containerView = null
 
-        activeAnimator?.cancel()
-        activeAnimator = null
+        val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container)
+        if (container != null && pillWidth > 0 && pillHeight > 0 && container.width > 0) {
+            val cw = container.width.toFloat()
+            val ch = container.height.toFloat()
+            val targetScaleX = pillWidth / cw
+            val targetScaleY = pillHeight / ch
 
-        val fadeOut = ObjectAnimator.ofFloat(view, View.ALPHA, 1f, 0f)
-        val scaleDown = ObjectAnimator.ofFloat(view, View.SCALE_X, 1f, 0.9f)
-        val scaleDownY = ObjectAnimator.ofFloat(view, View.SCALE_Y, 1f, 0.9f)
+            val containerLoc = IntArray(2)
+            container.getLocationOnScreen(containerLoc)
+            val targetTranslationX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
+            val targetTranslationY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
 
-        AnimatorSet().apply {
-            playTogether(fadeOut, scaleDown, scaleDownY)
-            duration = ANIM_DURATION_MS / 2
-            interpolator = DecelerateInterpolator(2f)
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    removeViewFromWindow(view)
-                    onDismissListener?.invoke()
-                    isDismissing = false
-                }
-            })
-            start()
+            onMorphStarted?.invoke()
+
+            val scaleX = ObjectAnimator.ofFloat(container, View.SCALE_X, 1f, targetScaleX)
+            val scaleY = ObjectAnimator.ofFloat(container, View.SCALE_Y, 1f, targetScaleY)
+            val transX = ObjectAnimator.ofFloat(container, View.TRANSLATION_X, 0f, targetTranslationX)
+            val transY = ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, 0f, targetTranslationY)
+
+            AnimatorSet().apply {
+                playTogether(scaleX, scaleY, transX, transY)
+                duration = ANIM_DURATION_MS / 2
+                interpolator = DecelerateInterpolator(2f)
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        onMorphFinished?.invoke()
+                        removeViewFromWindow(view)
+                        onDismissListener?.invoke()
+                        isDismissing = false
+                    }
+                })
+                start()
+            }
+        } else {
+            removeViewFromWindow(view)
+            onDismissListener?.invoke()
+            isDismissing = false
         }
-
-        onActionListener?.onDismiss()
     }
 
     fun updateContent(state: PillState) {
@@ -139,13 +168,8 @@ class DynamicPillExpandedDialog(
         populateCards(state, cardsContainer)
     }
 
-    // ── View construction ──────────────────────────────────────────────────
-
     private fun buildExpandedView(state: PillState): View {
-        // Full-screen transparent overlay — catches taps outside the cards
-        val root = android.widget.FrameLayout(context).apply {
-            // No background = fully transparent, touches pass through to here
-        }
+        val root = FrameLayout(context)
 
         val cardsContainer = LinearLayout(context).apply {
             id = R.id.expanded_cards_container
@@ -155,15 +179,13 @@ class DynamicPillExpandedDialog(
             background = createContainerBackground()
             val pad = dpToPx(8)
             setPadding(pad, pad, pad, pad)
-            // Consume all touches on the cards so root's listener doesn't fire
             isClickable = true
             isFocusable = true
         }
 
         populateCards(state, cardsContainer)
 
-        // Cards positioned at top with horizontal margin
-        val containerParams = android.widget.FrameLayout.LayoutParams(
+        val containerParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply {
@@ -173,17 +195,62 @@ class DynamicPillExpandedDialog(
         }
         root.addView(cardsContainer, containerParams)
 
-        // Tap anywhere outside cards → dismiss
-        root.setOnTouchListener { _, _ ->
-            dismiss()
+        root.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_DOWN) {
+                dismiss()
+            }
             true
         }
 
         return root
     }
 
+    private fun morphExpand(view: View) {
+        val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container) ?: return
+
+        container.post {
+            val cw = container.width.toFloat()
+            val ch = container.height.toFloat()
+            if (cw <= 0f || ch <= 0f) return@post
+
+            if (pillWidth > 0 && pillHeight > 0) {
+                val containerLoc = IntArray(2)
+                container.getLocationOnScreen(containerLoc)
+
+                val startScaleX = pillWidth / cw
+                val startScaleY = pillHeight / ch
+                val startTransX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
+                val startTransY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
+
+                container.scaleX = startScaleX
+                container.scaleY = startScaleY
+                container.translationX = startTransX
+                container.translationY = startTransY
+
+                onMorphStarted?.invoke()
+
+                container.animate()
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .translationX(0f)
+                    .translationY(0f)
+                    .setDuration(ANIM_DURATION_MS)
+                    .setInterpolator(DecelerateInterpolator(2f))
+                    .withEndAction {
+                        onMorphFinished?.invoke()
+                    }
+                    .start()
+            }
+        }
+    }
+
+    private fun removeViewFromWindow(view: View) {
+        try {
+            windowManager.removeView(view)
+        } catch (_: IllegalArgumentException) { }
+    }
+
     private fun populateCards(state: PillState, container: LinearLayout) {
-        // Sessions are already sorted newest-first by the controller
         for (session in state.activeSessions) {
             val card = when (session) {
                 is PillSession.Media -> createMediaCard(session)
@@ -199,8 +266,6 @@ class DynamicPillExpandedDialog(
         }
     }
 
-    // ── Card builders ──────────────────────────────────────────────────────
-
     private fun createMediaCard(media: PillSession.Media): View {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -209,7 +274,6 @@ class DynamicPillExpandedDialog(
             setPadding(dpToPx(16), dpToPx(12), dpToPx(12), dpToPx(12))
         }
 
-        // Track info
         val info = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -233,7 +297,6 @@ class DynamicPillExpandedDialog(
 
         card.addView(info)
 
-        // Controls: Prev | Play/Pause | Next
         val controls = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -332,8 +395,6 @@ class DynamicPillExpandedDialog(
         return card
     }
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-
     private fun makeBtn(drawableRes: Int, onClick: () -> Unit): ImageButton {
         return ImageButton(context).apply {
             setImageResource(drawableRes)
@@ -381,30 +442,6 @@ class DynamicPillExpandedDialog(
         ).apply {
             gravity = Gravity.TOP or Gravity.START
         }
-    }
-
-    private fun animateIn(view: View) {
-        view.alpha = 0f
-        view.scaleX = 0.9f
-        view.scaleY = 0.9f
-
-        activeAnimator?.cancel()
-        activeAnimator = AnimatorSet().apply {
-            playTogether(
-                ObjectAnimator.ofFloat(view, View.ALPHA, 0f, 1f),
-                ObjectAnimator.ofFloat(view, View.SCALE_X, 0.9f, 1f),
-                ObjectAnimator.ofFloat(view, View.SCALE_Y, 0.9f, 1f),
-            )
-            duration = ANIM_DURATION_MS
-            interpolator = DecelerateInterpolator(2f)
-            start()
-        }
-    }
-
-    private fun removeViewFromWindow(view: View) {
-        try {
-            windowManager.removeView(view)
-        } catch (_: IllegalArgumentException) { }
     }
 
     private fun formatTime(millis: Long): String {
