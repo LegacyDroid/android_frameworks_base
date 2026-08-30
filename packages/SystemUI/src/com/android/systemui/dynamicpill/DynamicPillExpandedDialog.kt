@@ -594,7 +594,7 @@ class DynamicPillExpandedDialog(
                 android.R.color.system_neutral2_10 -> 0xFFF4EFF4.toInt()
                 android.R.color.system_neutral1_900 -> 0xFF1C1B1F.toInt()
                 android.R.color.system_neutral1_10 -> 0xFFE6E1E5.toInt()
-                android.R.color.system_neutral1_60 -> 0xFF938F99.toInt()
+                android.R.color.system_neutral1_100 -> 0xFF938F99.toInt()
                 android.R.color.system_accent1_200 -> 0xFFD0BCFF.toInt()
                 android.R.color.system_accent1_100 -> 0xFFE8DEFF.toInt()
                 else -> 0xFFFFFFFF.toInt()
@@ -604,7 +604,7 @@ class DynamicPillExpandedDialog(
 
     /** On-surface text: primary = high-emphasis, secondary = medium-emphasis. */
     private fun textColor(primary: Boolean): Int =
-        resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.color.system_neutral1_60)
+resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.color.system_neutral1_100)
 
     /** Surface container background — tonal surface with elevation. */
     private fun surfaceColor(): Int = resolveColor(android.R.color.system_neutral2_900)
