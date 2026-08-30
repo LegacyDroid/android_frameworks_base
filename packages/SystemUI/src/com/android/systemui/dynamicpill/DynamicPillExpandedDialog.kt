@@ -333,22 +333,11 @@ class DynamicPillExpandedDialog(
                 val expandMorphFinished = onMorphFinished
                 expandMorphStarted?.invoke()
 
-                // Cards: fade in and cross-fade bg color in sync with container.
-                val targetCardColor = cardColor()
-                val cardAnimators = mutableListOf<android.animation.Animator>()
+                // Cards: just fade in — background already matches container
+                // since both target cardColor(). No separate card color anim.
                 for (i in 0 until childCount) {
                     val child = container.getChildAt(i)
-                    val childBg = child.background as? GradientDrawable
-                    childBg?.setColor(pillHighlightColor)
-
-                    // Card bg color follows the same timing as container color.
-                    cardAnimators.add(ValueAnimator.ofArgb(pillHighlightColor, targetCardColor).apply {
-                        startDelay = (ANIM_DURATION_MS * 0.20f).toLong()
-                        duration = (ANIM_DURATION_MS * 0.60f).toLong()
-                        addUpdateListener { anim ->
-                            childBg?.setColor(anim.animatedValue as Int)
-                        }
-                    })
+                    child.alpha = 0f
 
                     child.animate()
                         .alpha(1f)
@@ -382,7 +371,7 @@ class DynamicPillExpandedDialog(
                 }
 
                 val animator = android.animation.AnimatorSet()
-                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator, *cardAnimators.toTypedArray())
+                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator)
                 animator.duration = ANIM_DURATION_MS
                 animator.interpolator = BOUNCY
                 animator.addListener(object : android.animation.AnimatorListenerAdapter() {
