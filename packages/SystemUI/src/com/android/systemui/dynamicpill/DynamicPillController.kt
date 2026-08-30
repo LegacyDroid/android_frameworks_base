@@ -125,6 +125,9 @@ class DynamicPillController @Inject constructor(
 
     private val clockTicker = object : Runnable {
         override fun run() {
+            // Refresh the foreground app every tick so the hide rule can never go stale
+            // if a task-stack callback is missed.
+            refreshTopPackage()
             advanceClockSession()
             mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
         }
@@ -436,6 +439,7 @@ class DynamicPillController @Inject constructor(
         }
         if (pkg != topPackage) {
             topPackage = pkg
+            Log.d(TAG, "Top package changed to $pkg")
             rebuildState()
         }
     }
