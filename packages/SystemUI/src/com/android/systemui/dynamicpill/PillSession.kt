@@ -37,6 +37,12 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long = Syste
         val position: Long,
         val sessionKey: String? = null,
         val token: MediaSession.Token? = null,
+        /**
+         * Elapsed realtime (ms) of the last observed PLAYING state. A session that
+         * never played (or last played longer ago than the retain window) does not
+         * populate the pill, so a fresh boot with no active playback stays clean.
+         */
+        val lastActiveAt: Long = 0L,
     ) : PillSession(PillSourceType.MEDIA)
 
     /** Clock timer or stopwatch session. */

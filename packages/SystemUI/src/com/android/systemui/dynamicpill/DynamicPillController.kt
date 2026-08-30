@@ -94,8 +94,6 @@ class DynamicPillController @Inject constructor(
         private const val PAUSED_MEDIA_TIMEOUT_MS = 10 * 60 * 1000L
     }
 
-    private var lastMediaPausedAt = 0L
-
     private val callbacks = CopyOnWriteArrayList<DynamicPillCallback>()
     private val activeSessions = mutableMapOf<PillSourceType, PillSession>()
     @Volatile private var currentState = PillState()
@@ -129,11 +127,12 @@ class DynamicPillController @Inject constructor(
         override fun onPlaybackStateChanged(state: PlaybackState?) {
             val playing = state?.state == PlaybackState.STATE_PLAYING
             mediaIsPlaying = playing
-            if (playing) {
-                lastMediaPausedAt = 0L
-            }
             val current = activeSessions[PillSourceType.MEDIA] as? PillSession.Media ?: return
-            addSession(current.copy(isPlaying = playing))
+            val now = SystemClock.elapsedRealtime()
+            addSession(
+                if (playing) current.copy(isPlaying = true, lastActiveAt = now)
+                else current.copy(isPlaying = false)
+            )
         }
 
         override fun onMetadataChanged(metadata: android.media.MediaMetadata?) {
@@ -201,8 +200,8 @@ class DynamicPillController @Inject constructor(
                     position = 0L,
                     sessionKey = key,
                     token = data.token,
+                    lastActiveAt = SystemClock.elapsedRealtime(),
                 )
-                lastMediaPausedAt = 0L
                 mediaController = data.token?.let { MediaController(context, it) }
                 mediaIsPlaying = true
                 addSession(session)
@@ -278,7 +277,6 @@ class DynamicPillController @Inject constructor(
         activityTaskManager.unregisterTaskStackListener(taskStackListener)
         stopClockTicker()
         mediaController = null
-        lastMediaPausedAt = 0L
         activeSessions.clear()
         currentState = PillState()
         dispatchState()
@@ -363,23 +361,36 @@ class DynamicPillController @Inject constructor(
             // destroyed). Mirroring the QS carousel, the pill is removed here;
             // resumption cards are out of scope for now.
             mediaController = null
-            lastMediaPausedAt = 0L
             removeSession(PillSourceType.MEDIA)
             return
         }
-        // Prefer a playing session; otherwise keep the last known one (a paused
-        // but still active session must stay visible, exactly like QS), falling
-        // back to any other active session.
-        val knownPackage = (activeSessions[PillSourceType.MEDIA] as? PillSession.Media)
-            ?.packageName
+        // Prefer a playing session; otherwise keep the session we already show.
+        // Never adopt an arbitrary paused session from the list: a session that
+        // has not actually played within the retain window (or ever, e.g. right
+        // after boot) must not populate the pill.
+        val known = activeSessions[PillSourceType.MEDIA] as? PillSession.Media
         val target = controllers.firstOrNull { ctrl ->
             ctrl.playbackState?.state == android.media.session.PlaybackState.STATE_PLAYING
-        } ?: controllers.firstOrNull { ctrl ->
-            ctrl.packageName == knownPackage
-        } ?: controllers.first()
+        } ?: known?.packageName?.let { pkg ->
+            controllers.firstOrNull { ctrl -> ctrl.packageName == pkg }
+        } ?: return
 
         val state = target.playbackState?.state
         val isPlaying = state == android.media.session.PlaybackState.STATE_PLAYING
+        val now = SystemClock.elapsedRealtime()
+        val lastActiveAt = if (isPlaying) now else (known?.lastActiveAt ?: 0L)
+
+        // A paused session that never played or last played beyond the retain
+        // window is stale: drop it rather than leave a dead card on the pill.
+        if (!isPlaying && (lastActiveAt == 0L || now - lastActiveAt > PAUSED_MEDIA_TIMEOUT_MS)) {
+            if (known != null) {
+                Log.d(TAG, "Media session stale (lastActiveAt=$lastActiveAt); hiding pill")
+                mediaController = null
+                removeSession(PillSourceType.MEDIA)
+            }
+            return
+        }
+
         val metadata = target.metadata
         val session = PillSession.Media(
             packageName = target.packageName,
@@ -389,10 +400,8 @@ class DynamicPillController @Inject constructor(
             duration = 0L,
             position = 0L,
             token = target.sessionToken,
+            lastActiveAt = lastActiveAt,
         )
-        if (isPlaying) {
-            lastMediaPausedAt = 0L
-        }
         mediaController = MediaController(context, target.sessionToken)
         mediaIsPlaying = isPlaying
         addSession(session)
@@ -457,17 +466,15 @@ class DynamicPillController @Inject constructor(
     private fun checkMediaTimeout() {
         val session = activeSessions[PillSourceType.MEDIA] as? PillSession.Media ?: return
         if (session.isPlaying) {
-            lastMediaPausedAt = 0L
+            return
+        }
+        if (session.lastActiveAt == 0L) {
             return
         }
         val now = SystemClock.elapsedRealtime()
-        if (lastMediaPausedAt == 0L) {
-            lastMediaPausedAt = now
-            return
-        }
-        if (now - lastMediaPausedAt >= PAUSED_MEDIA_TIMEOUT_MS) {
+        if (now - session.lastActiveAt >= PAUSED_MEDIA_TIMEOUT_MS) {
             Log.d(TAG, "Media session idle ${PAUSED_MEDIA_TIMEOUT_MS}ms; hiding pill")
-            lastMediaPausedAt = 0L
+            mediaController = null
             removeSession(PillSourceType.MEDIA)
         }
     }
@@ -574,6 +581,5 @@ class DynamicPillController @Inject constructor(
         }
         pw.println("  state=$currentState")
         pw.println("  topPackage=$topPackage")
-        pw.println("  lastMediaPausedAt=$lastMediaPausedAt")
     }
 }
