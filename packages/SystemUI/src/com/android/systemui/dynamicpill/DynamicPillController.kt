@@ -17,6 +17,7 @@
 package com.android.systemui.dynamicpill
 
 import android.app.ActivityTaskManager
+import android.app.IActivityTaskManager
 import android.app.TaskStackListener
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -29,6 +30,7 @@ import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.SystemClock
 import android.util.Log
+import android.view.Display
 import com.android.systemui.CoreStartable
 import com.android.systemui.Dumpable
 import com.android.systemui.dagger.SysUISingleton
@@ -92,7 +94,8 @@ class DynamicPillController @Inject constructor(
     private var clockTickerRunning = false
     private var lastClockTickAt = 0L
 
-    private val activityTaskManager = context.getSystemService(ActivityTaskManager::class.java)
+    /** Binder to the activity task stack, used to track the foreground app. */
+    private val activityTaskManager: IActivityTaskManager = ActivityTaskManager.getService()
 
     /** Package of the app currently on top of the main display, or null if unavailable. */
     private var topPackage: String? = null
@@ -106,7 +109,7 @@ class DynamicPillController @Inject constructor(
             refreshTopPackage()
         }
 
-        override fun onTaskMovedToFront(taskId: Int) {
+        override fun onTaskMovedToFront(taskInfo: android.app.ActivityManager.RunningTaskInfo) {
             refreshTopPackage()
         }
     }
@@ -205,7 +208,7 @@ class DynamicPillController @Inject constructor(
         )
 
         // Track the foreground app to hide the pill while it owns the displayed session.
-        activityTaskManager.addTaskStackListener(taskStackListener)
+        activityTaskManager.registerTaskStackListener(taskStackListener)
         refreshTopPackage()
 
         startClockTicker()
@@ -217,7 +220,7 @@ class DynamicPillController @Inject constructor(
         mediaDataManager.removeListener(mediaDataListener)
         recordingController.removeCallback(recordingStateCallback)
         context.unregisterReceiver(clockStateReceiver)
-        activityTaskManager.removeTaskStackListener(taskStackListener)
+        activityTaskManager.unregisterTaskStackListener(taskStackListener)
         stopClockTicker()
         activeSessions.clear()
         currentState = PillState()
@@ -425,7 +428,9 @@ class DynamicPillController @Inject constructor(
 
     private fun refreshTopPackage() {
         val pkg = try {
-            activityTaskManager.getTasks(1).firstOrNull()?.topActivity?.packageName
+            activityTaskManager
+                .getTasks(1, false, false, Display.INVALID_DISPLAY)
+                .firstOrNull()?.topActivity?.packageName
         } catch (e: Exception) {
             null
         }
