@@ -222,9 +222,9 @@ class DynamicPillView @JvmOverloads constructor(
 
     private fun resolveSurfaceColor(): Int {
         return try {
-            context.resources.getColor(android.R.color.system_neutral2_900, context.theme)
+            context.resources.getColor(android.R.color.system_accent1_600, context.theme)
         } catch (e: Exception) {
-            0xFF1C1B1F.toInt()
+            0xFF6750A4.toInt()
         }
     }
 }
