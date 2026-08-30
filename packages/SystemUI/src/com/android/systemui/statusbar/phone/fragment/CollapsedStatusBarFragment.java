@@ -133,6 +133,9 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
     private DynamicPillView mDynamicPillView;
     private DynamicPillExpandedDialog mExpandedDialog;
     private View mClockView;
+
+    /** Whether the compact pill is logically visible (used to drive fade in/out). */
+    private boolean mPillVisible = false;
     private View mNotificationIconArea;
     private View mNotificationIconAreaInner;
     private View mNetworkTrafficHolderStart;
@@ -188,14 +191,20 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             if (mDynamicPillView == null) return;
 
             mDynamicPillView.updateState(state);
-            boolean pillActive = state.getHasActiveSessions();
             boolean expanded = state.isExpanded();
+            boolean showPill = state.isPillVisible();
 
             if (mClockView != null) {
-                mClockView.setVisibility(pillActive ? View.GONE : View.VISIBLE);
+                mClockView.setVisibility(showPill ? View.GONE : View.VISIBLE);
             }
 
-            if (expanded && pillActive) {
+            if (mExpandedDialog != null && mExpandedDialog.isShowing()
+                    && state.isHiddenForForeground()) {
+                // The foreground app owns the currently displayed session:
+                // close the dialog without re-showing the pill. The listeners
+                // armed at expand time keep the pill gone after the morph.
+                mExpandedDialog.dismiss();
+            } else if (expanded && showPill) {
                 if (mExpandedDialog == null) {
                     WindowManager wm = (WindowManager) getContext().getSystemService(Context.WINDOW_SERVICE);
                     mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
@@ -203,10 +212,14 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                         mDynamicPillController.setExpanded(false);
                         return null;
                     });
+                    mExpandedDialog.setActionListener(mDynamicPillController);
                 }
                 mExpandedDialog.setOnMorphListeners(
                     () -> {},
-                    () -> mDynamicPillView.setVisibility(View.GONE)
+                    () -> {
+                        mDynamicPillView.setVisibility(View.GONE);
+                        mPillVisible = false;
+                    }
                 );
                 if (!mExpandedDialog.isShowing()) {
                     if (mNotificationIconArea != null) {
@@ -215,6 +228,7 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                         mDynamicPillView.getLocationOnScreen(loc);
                         int[] pillRect = { loc[0], loc[1], mDynamicPillView.getWidth(), mDynamicPillView.getHeight() };
                         mDynamicPillView.setVisibility(View.GONE);
+                        mPillVisible = false;
                         mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
                                 new android.view.ViewTreeObserver.OnPreDrawListener() {
                                     @Override
@@ -244,49 +258,55 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                     mExpandedDialog.updateContent(state);
                 }
                 mDynamicPillView.setVisibility(View.GONE);
+                mPillVisible = false;
             } else if (mExpandedDialog != null) {
-                mExpandedDialog.setOnMorphListeners(
-                    () -> {
-                        // Pill stays hidden during the morph; slide the
-                        // notification icons into their post-dismiss position
-                        // concurrently with the shrink animation.
-                        if (mNotificationIconArea != null) {
-                            int pillW = measureDynamicPillWidth();
-                            if (pillW > 0) {
-                                mNotificationIconArea.animate().cancel();
-                                mNotificationIconArea.setTranslationX(0f);
-                                mNotificationIconArea.animate()
-                                    .translationX(pillW)
-                                    .setDuration(280)
-                                    .setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f))
-                                    .start();
+                if (mExpandedDialog.isShowing() && !mExpandedDialog.dismissInProgress()) {
+                    mExpandedDialog.setOnMorphListeners(
+                        () -> {
+                            // Pill stays hidden during the morph; slide the
+                            // notification icons into their post-dismiss position
+                            // concurrently with the shrink animation.
+                            if (mNotificationIconArea != null) {
+                                int pillW = measureDynamicPillWidth();
+                                if (pillW > 0) {
+                                    mNotificationIconArea.animate().cancel();
+                                    mNotificationIconArea.setTranslationX(0f);
+                                    mNotificationIconArea.animate()
+                                        .translationX(pillW)
+                                        .setDuration(280)
+                                        .setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f))
+                                        .start();
+                                }
+                            }
+                        },
+                        () -> {
+                            // Reveal the pill only after the dismiss animation
+                            // completes; drop the manual icon offset once the
+                            // pill takes its layout slot again.
+                            mDynamicPillView.setVisibility(View.VISIBLE);
+                            mDynamicPillView.setAlpha(1f);
+                            mPillVisible = true;
+                            if (mNotificationIconArea != null) {
+                                mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
+                                        new android.view.ViewTreeObserver.OnPreDrawListener() {
+                                            @Override
+                                            public boolean onPreDraw() {
+                                                mNotificationIconArea.getViewTreeObserver().removeOnPreDrawListener(this);
+                                                mNotificationIconArea.animate().cancel();
+                                                mNotificationIconArea.setTranslationX(0f);
+                                                return true;
+                                            }
+                                        });
                             }
                         }
-                    },
-                    () -> {
-                        // Reveal the pill only after the dismiss animation
-                        // completes; drop the manual icon offset once the
-                        // pill takes its layout slot again.
-                        mDynamicPillView.setVisibility(View.VISIBLE);
-                        mDynamicPillView.setAlpha(1f);
-                        if (mNotificationIconArea != null) {
-                            mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
-                                    new android.view.ViewTreeObserver.OnPreDrawListener() {
-                                        @Override
-                                        public boolean onPreDraw() {
-                                            mNotificationIconArea.getViewTreeObserver().removeOnPreDrawListener(this);
-                                            mNotificationIconArea.animate().cancel();
-                                            mNotificationIconArea.setTranslationX(0f);
-                                            return true;
-                                        }
-                                    });
-                        }
-                    }
-                );
-                mExpandedDialog.dismiss();
+                    );
+                    mExpandedDialog.dismiss();
+                }
+                if (!mExpandedDialog.dismissInProgress()) {
+                    updatePillVisibility(showPill);
+                }
             } else {
-                mDynamicPillView.setVisibility(
-                    pillActive ? View.VISIBLE : View.GONE);
+                updatePillVisibility(showPill);
             }
         }
     };
@@ -298,6 +318,40 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         int spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
         mDynamicPillView.measure(spec, spec);
         return mDynamicPillView.getMeasuredWidth();
+    }
+
+    /**
+     * Fades the compact pill in (appear) or out (hide). The big-to-small dismiss-morph reveal
+     * bypasses this path and stays instant.
+     */
+    private void updatePillVisibility(boolean showPill) {
+        if (showPill == mPillVisible) {
+            return;
+        }
+        mPillVisible = showPill;
+
+        if (showPill) {
+            mDynamicPillView.animate().cancel();
+            mDynamicPillView.setVisibility(View.VISIBLE);
+            mDynamicPillView.setAlpha(0f);
+            mDynamicPillView.animate()
+                .alpha(1f)
+                .setDuration(250)
+                .setInterpolator(new android.view.animation.PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f))
+                .start();
+        } else {
+            mDynamicPillView.animate().cancel();
+            mDynamicPillView.animate()
+                .alpha(0f)
+                .setDuration(180)
+                .setInterpolator(new android.view.animation.PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f))
+                .withEndAction(() -> {
+                    if (!mPillVisible) {
+                        mDynamicPillView.setVisibility(View.GONE);
+                    }
+                })
+                .start();
+        }
     }
 
     private OperatorNameViewController mOperatorNameViewController;

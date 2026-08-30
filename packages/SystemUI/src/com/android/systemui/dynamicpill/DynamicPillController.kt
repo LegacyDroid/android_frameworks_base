@@ -16,14 +16,18 @@
 
 package com.android.systemui.dynamicpill
 
-import android.app.NotificationManager
+import android.app.ActivityTaskManager
+import android.app.TaskStackListener
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
-import android.service.notification.StatusBarNotification
+import android.os.SystemClock
 import android.util.Log
 import com.android.systemui.CoreStartable
 import com.android.systemui.Dumpable
@@ -41,7 +45,8 @@ import javax.inject.Inject
  * Controller for the Dynamic Pill status bar feature.
  *
  * Manages subscriptions to media, clock (timer/stopwatch), and recording sessions.
- * Compact state shows the most recently triggered session.
+ * Compact state shows the most recently triggered session. The pill is hidden while the
+ * foreground app owns the currently displayed session.
  *
  * State updates are dispatched to registered [DynamicPillCallback] instances.
  */
@@ -53,38 +58,72 @@ class DynamicPillController @Inject constructor(
     private val recordingController: RecordingController,
     private val mediaSessionManager: MediaSessionManager,
     private val dumpManager: DumpManager,
-) : CoreStartable, Dumpable {
+) : CoreStartable, Dumpable, DynamicPillExpandedDialog.ActionListener {
 
     companion object {
         private const val TAG = "DynamicPillController"
         private const val CLOCK_TICK_INTERVAL_MS = 1000L
-        private const val DESKCLOCK_POLL_INTERVAL_MS = 2000L
         private const val DUMP_PREFIX = "DynamicPillController"
-        private const val DESKCLOCK_PACKAGE = "com.android.deskclock"
-        private const val TIMER_CHANNEL = "timerNotification"
-        private const val STOPWATCH_CHANNEL = "stopwatchNotification"
-        private const val TIMER_NOTIF_ID = Int.MAX_VALUE - 2
-        private const val STOPWATCH_NOTIF_ID = Int.MAX_VALUE - 1
+
+        /** Package of the DeskClock app that owns the CLOCK pill session. */
+        const val DESKCLOCK_PACKAGE = "com.android.deskclock"
+
+        // Cross-process contract with com.android.deskclock.pill.PillClockContract.
+        // DeskClock and SystemUI cannot share classes, so the strings are duplicated.
+        private const val PILL_CLOCK_STATE_CHANGED =
+            "com.android.deskclock.action.PILL_CLOCK_STATE_CHANGED"
+        private const val PILL_CLOCK_STATE_REQUEST =
+            "com.android.deskclock.action.REQUEST_PILL_CLOCK_STATE"
+        private const val EXTRA_TYPE = "type"
+        private const val EXTRA_STATE = "state"
+        private const val EXTRA_REMAINING_MS = "remaining_ms"
+        private const val EXTRA_TOTAL_MS = "total_ms"
+        private const val EXTRA_ELAPSED_MS = "elapsed_ms"
+        private const val TYPE_TIMER = "timer"
+        private const val TYPE_STOPWATCH = "stopwatch"
+        private const val STATE_RUNNING = "running"
+        private const val STATE_PAUSED = "paused"
+        private const val STATE_RESET = "reset"
     }
 
     private val callbacks = CopyOnWriteArrayList<DynamicPillCallback>()
     private val activeSessions = mutableMapOf<PillSourceType, PillSession>()
     @Volatile private var currentState = PillState()
     private var clockTickerRunning = false
-    private var deskclockPollingRunning = false
-    private val notificationManager = context.getSystemService(NotificationManager::class.java)
+    private var lastClockTickAt = 0L
 
-    private val clockTicker = object : Runnable {
-        override fun run() {
-            updateClockSessions()
-            mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
+    private val activityTaskManager = context.getSystemService(ActivityTaskManager::class.java)
+
+    /** Package of the app currently on top of the main display, or null if unavailable. */
+    private var topPackage: String? = null
+
+    /** MediaController of the session currently shown in the pill, used for transport controls. */
+    private var mediaController: MediaController? = null
+    @Volatile private var mediaIsPlaying = false
+
+    private val taskStackListener = object : TaskStackListener() {
+        override fun onTaskStackChanged() {
+            refreshTopPackage()
+        }
+
+        override fun onTaskMovedToFront(taskId: Int) {
+            refreshTopPackage()
         }
     }
 
-    private val deskclockPoller = object : Runnable {
+    private val clockStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(receiverContext: Context?, intent: Intent?) {
+            if (intent == null) return
+            if (intent.getPackage() != DESKCLOCK_PACKAGE) return
+            if (intent.action != PILL_CLOCK_STATE_CHANGED) return
+            onClockStateBroadcast(intent)
+        }
+    }
+
+    private val clockTicker = object : Runnable {
         override fun run() {
-            checkDeskclockNotifications()
-            mainHandler.postDelayed(this, DESKCLOCK_POLL_INTERVAL_MS)
+            advanceClockSession()
+            mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
         }
     }
 
@@ -105,14 +144,21 @@ class DynamicPillController @Inject constructor(
                     isPlaying = true,
                     duration = 0L,
                     position = 0L,
+                    sessionKey = key,
+                    token = data.token,
                 )
+                mediaController = data.token?.let { MediaController(context, it) }
+                mediaIsPlaying = true
                 addSession(session)
             } else {
+                mediaIsPlaying = false
+                mediaController = null
                 removeSession(PillSourceType.MEDIA)
             }
         }
 
         override fun onMediaDataRemoved(key: String) {
+            mediaController = null
             removeSession(PillSourceType.MEDIA)
         }
     }
@@ -146,8 +192,23 @@ class DynamicPillController @Inject constructor(
         }
         val componentName = ComponentName(context, "com.android.systemui.media.MediaSessionBasedFilter")
         mediaSessionManager.addOnActiveSessionsChangedListener(listener, componentName)
+
+        // Listen for clock state broadcasts from DeskClock.
+        val filter = IntentFilter().apply {
+            addAction(PILL_CLOCK_STATE_CHANGED)
+        }
+        context.registerReceiver(clockStateReceiver, filter, Context.RECEIVER_EXPORTED)
+
+        // Ask DeskClock for the current timer/stopwatch state.
+        context.sendBroadcast(
+            Intent(PILL_CLOCK_STATE_REQUEST).setPackage(DESKCLOCK_PACKAGE)
+        )
+
+        // Track the foreground app to hide the pill while it owns the displayed session.
+        activityTaskManager.addTaskStackListener(taskStackListener)
+        refreshTopPackage()
+
         startClockTicker()
-        startDeskclockPolling()
     }
 
     /** Stop listening and release resources. */
@@ -155,9 +216,11 @@ class DynamicPillController @Inject constructor(
         Log.d(TAG, "Stopping DynamicPillController")
         mediaDataManager.removeListener(mediaDataListener)
         recordingController.removeCallback(recordingStateCallback)
+        context.unregisterReceiver(clockStateReceiver)
+        activityTaskManager.removeTaskStackListener(taskStackListener)
         stopClockTicker()
-        stopDeskclockPolling()
         activeSessions.clear()
+        currentState = PillState()
         dispatchState()
     }
 
@@ -199,7 +262,11 @@ class DynamicPillController @Inject constructor(
 
     private fun rebuildState() {
         val sorted = activeSessions.values.sortedByDescending { it.timestamp }
-        currentState = currentState.copy(activeSessions = sorted)
+        val compact = sorted.firstOrNull()
+        currentState = currentState.copy(
+            activeSessions = sorted,
+            isHiddenForForeground = matchesForeground(compact),
+        )
         dispatchState()
     }
 
@@ -207,8 +274,27 @@ class DynamicPillController @Inject constructor(
         callbacks.forEach { it.onPillStateChanged(currentState) }
     }
 
+    /** Media card action dispatch. */
+    override fun onMediaPlayPause() {
+        val controller = mediaController ?: return
+        if (mediaIsPlaying) {
+            controller.transportControls.pause()
+        } else {
+            controller.transportControls.play()
+        }
+    }
+
+    override fun onMediaNext() {
+        mediaController?.transportControls?.skipToNext()
+    }
+
+    override fun onMediaPrevious() {
+        mediaController?.transportControls?.skipToPrevious()
+    }
+
     private fun onMediaSessionsChanged(controllers: List<MediaController>?) {
         if (controllers.isNullOrEmpty()) {
+            mediaController = null
             removeSession(PillSourceType.MEDIA)
             return
         }
@@ -224,24 +310,84 @@ class DynamicPillController @Inject constructor(
                 isPlaying = true,
                 duration = 0L,
                 position = 0L,
+                token = playing.sessionToken,
             )
+            mediaController = MediaController(context, playing.sessionToken)
+            mediaIsPlaying = true
             addSession(session)
         } else {
+            mediaController = null
             removeSession(PillSourceType.MEDIA)
         }
     }
 
-    private fun updateClockSessions() {
+    private fun onClockStateBroadcast(intent: Intent) {
+        val type = intent.getStringExtra(EXTRA_TYPE)
+        val state = intent.getStringExtra(EXTRA_STATE) ?: return
+        val isReset = state == STATE_RESET
+        val currentClock = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock
+        when (type) {
+            TYPE_TIMER -> {
+                if (isReset) {
+                    // Keep a stopwatch session if one is active.
+                    if (currentClock != null && !currentClock.isStopwatch) {
+                        removeSession(PillSourceType.CLOCK)
+                    }
+                } else {
+                    val total = intent.getLongExtra(EXTRA_TOTAL_MS, 0L)
+                    val remaining = intent.getLongExtra(EXTRA_REMAINING_MS, 0L)
+                    val elapsed = (total - remaining).coerceAtLeast(0L)
+                    addSession(
+                        PillSession.Clock(
+                            isStopwatch = false,
+                            elapsedMillis = elapsed,
+                            isPaused = state == STATE_PAUSED,
+                            totalCountdownMillis = total,
+                        )
+                    )
+                }
+            }
+            TYPE_STOPWATCH -> {
+                if (isReset) {
+                    // Keep a timer session if one is active.
+                    if (currentClock != null && currentClock.isStopwatch) {
+                        removeSession(PillSourceType.CLOCK)
+                    }
+                } else {
+                    val elapsed = intent.getLongExtra(EXTRA_ELAPSED_MS, 0L)
+                    addSession(
+                        PillSession.Clock(
+                            isStopwatch = true,
+                            elapsedMillis = elapsed,
+                            isPaused = state == STATE_PAUSED,
+                        )
+                    )
+                }
+            }
+            else -> {
+                if (isReset) {
+                    removeSession(PillSourceType.CLOCK)
+                }
+            }
+        }
+    }
+
+    /** Advances the elapsed time of a running clock session using real elapsed time deltas. */
+    private fun advanceClockSession() {
+        val now = SystemClock.elapsedRealtime()
+        val delta = if (lastClockTickAt == 0L) 0L else (now - lastClockTickAt).coerceIn(0L, 5000L)
+        lastClockTickAt = now
+
         val clockSession = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock ?: return
-        val updated = clockSession.copy(
-            elapsedMillis = clockSession.elapsedMillis + CLOCK_TICK_INTERVAL_MS,
-        )
-        addSession(updated)
+        if (!clockSession.isPaused && delta > 0L) {
+            addSession(clockSession.copy(elapsedMillis = clockSession.elapsedMillis + delta))
+        }
     }
 
     private fun startClockTicker() {
         if (!clockTickerRunning) {
             clockTickerRunning = true
+            lastClockTickAt = 0L
             mainHandler.post(clockTicker)
         }
     }
@@ -277,90 +423,33 @@ class DynamicPillController @Inject constructor(
         addSession(updated)
     }
 
-    private fun startDeskclockPolling() {
-        if (!deskclockPollingRunning) {
-            deskclockPollingRunning = true
-            mainHandler.post(deskclockPoller)
-        }
-    }
-
-    private fun stopDeskclockPolling() {
-        deskclockPollingRunning = false
-        mainHandler.removeCallbacks(deskclockPoller)
-    }
-
-    private fun checkDeskclockNotifications() {
-        try {
-            val notifications = notificationManager?.activeNotifications ?: return
-            var foundTimer = false
-            var foundStopwatch = false
-
-            for (sbn: StatusBarNotification in notifications) {
-                if (sbn.packageName != DESKCLOCK_PACKAGE) continue
-                val channelId = sbn.notification?.channelId ?: continue
-
-                if (channelId == TIMER_CHANNEL && sbn.id == TIMER_NOTIF_ID) {
-                    foundTimer = true
-                    val elapsed = extractElapsedFromNotification(sbn)
-                    addSession(PillSession.Clock(
-                        isStopwatch = false,
-                        elapsedMillis = elapsed,
-                        isPaused = !sbn.isOngoing,
-                    ))
-                } else if (channelId == STOPWATCH_CHANNEL && sbn.id == STOPWATCH_NOTIF_ID) {
-                    foundStopwatch = true
-                    val elapsed = extractElapsedFromNotification(sbn)
-                    addSession(PillSession.Clock(
-                        isStopwatch = true,
-                        elapsedMillis = elapsed,
-                        isPaused = !sbn.isOngoing,
-                    ))
-                }
-            }
-
-            if (!foundTimer && activeSessions.containsKey(PillSourceType.CLOCK)) {
-                val current = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock
-                if (current != null && !current.isStopwatch) {
-                    removeSession(PillSourceType.CLOCK)
-                }
-            }
-            if (!foundStopwatch && activeSessions.containsKey(PillSourceType.CLOCK)) {
-                val current = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock
-                if (current != null && current.isStopwatch) {
-                    removeSession(PillSourceType.CLOCK)
-                }
-            }
-        } catch (e: SecurityException) {
-            Log.w(TAG, "Cannot access active notifications", e)
-        }
-    }
-
-    private fun extractElapsedFromNotification(sbn: StatusBarNotification): Long {
-        val extras = sbn.notification?.extras ?: return 0L
-        val text = extras.getCharSequence(android.app.Notification.EXTRA_TEXT)?.toString() ?: return 0L
-        return try {
-            parseTimeStringToMillis(text)
+    private fun refreshTopPackage() {
+        val pkg = try {
+            activityTaskManager.getTasks(1).firstOrNull()?.topActivity?.packageName
         } catch (e: Exception) {
-            0L
+            null
+        }
+        if (pkg != topPackage) {
+            topPackage = pkg
+            rebuildState()
         }
     }
 
-    private fun parseTimeStringToMillis(time: String): Long {
-        val parts = time.split(":")
-        return when (parts.size) {
-            3 -> {
-                val h = parts[0].toLongOrNull() ?: 0L
-                val m = parts[1].toLongOrNull() ?: 0L
-                val s = parts[2].toLongOrNull() ?: 0L
-                (h * 3600 + m * 60 + s) * 1000
-            }
-            2 -> {
-                val m = parts[0].toLongOrNull() ?: 0L
-                val s = parts[1].toLongOrNull() ?: 0L
-                (m * 60 + s) * 1000
-            }
-            else -> 0L
-        }
+    /** Whether the currently displayed session is owned by the foreground app. */
+    private fun matchesForeground(session: PillSession?): Boolean {
+        val owner = ownerPackage(session) ?: return false
+        val top = topPackage ?: return false
+        return owner == top
+    }
+
+    /**
+     * Package owning the given session: the media app for MEDIA, DeskClock for CLOCK, and no owner
+     * (never hidden) for RECORDING.
+     */
+    private fun ownerPackage(session: PillSession?): String? = when (session) {
+        is PillSession.Media -> session.packageName
+        is PillSession.Clock -> DESKCLOCK_PACKAGE
+        else -> null
     }
 
     override fun dump(pw: PrintWriter, args: Array<String>) {
@@ -370,5 +459,6 @@ class DynamicPillController @Inject constructor(
             pw.println("    $source: $session")
         }
         pw.println("  state=$currentState")
+        pw.println("  topPackage=$topPackage")
     }
 }

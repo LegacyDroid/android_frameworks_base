@@ -16,6 +16,8 @@
 
 package com.android.systemui.dynamicpill
 
+import android.media.session.MediaSession
+
 /** Source type of a dynamic pill session. */
 enum class PillSourceType {
     RECORDING,
@@ -33,6 +35,8 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long = Syste
         val isPlaying: Boolean,
         val duration: Long,
         val position: Long,
+        val sessionKey: String? = null,
+        val token: MediaSession.Token? = null,
     ) : PillSession(PillSourceType.MEDIA)
 
     /** Clock timer or stopwatch session. */
@@ -55,6 +59,8 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long = Syste
 data class PillState(
     val activeSessions: List<PillSession> = emptyList(),
     val isExpanded: Boolean = false,
+    /** True while the foreground app owns the currently displayed session. */
+    val isHiddenForForeground: Boolean = false,
 ) {
     val hasActiveSessions: Boolean get() = activeSessions.isNotEmpty()
 
@@ -63,6 +69,9 @@ data class PillState(
      * Most recently triggered (highest timestamp) wins.
      */
     val compactSession: PillSession? get() = activeSessions.maxByOrNull { it.timestamp }
+
+    /** Whether the pill should be shown at all. */
+    val isPillVisible: Boolean get() = hasActiveSessions && !isHiddenForForeground
 
     /** Distinct source types currently active. */
     val activeSourceTypes: Set<PillSourceType>

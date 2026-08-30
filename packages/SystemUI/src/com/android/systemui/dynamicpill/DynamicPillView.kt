@@ -199,7 +199,13 @@ class DynamicPillView @JvmOverloads constructor(
                 pillText.text = session.title.ifEmpty { session.artist }
             }
             is PillSession.Clock -> {
-                pillText.text = formatTime(session.elapsedMillis)
+                // Timers count down (show remaining), stopwatches count up (show elapsed).
+                val displayMillis = if (session.isStopwatch) {
+                    session.elapsedMillis
+                } else {
+                    (session.totalCountdownMillis - session.elapsedMillis).coerceAtLeast(0L)
+                }
+                pillText.text = formatTime(displayMillis)
             }
             is PillSession.Recording -> {
                 pillText.text = formatTime(session.elapsedMillis)

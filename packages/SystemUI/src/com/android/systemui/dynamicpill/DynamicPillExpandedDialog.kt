@@ -72,6 +72,9 @@ class DynamicPillExpandedDialog(
 
     fun isShowing(): Boolean = isShowing
 
+    /** Whether a dismiss morph is currently in progress. */
+    fun dismissInProgress(): Boolean = isDismissing
+
     fun setOnMorphListeners(started: Runnable, finished: Runnable) {
         onMorphStarted = { started.run() }
         onMorphFinished = { finished.run() }
@@ -407,7 +410,8 @@ class DynamicPillExpandedDialog(
         }
 
         controls.addView(makeBtn(R.drawable.ic_media_prev) { onActionListener?.onMediaPrevious() })
-        controls.addView(makeBtn(R.drawable.ic_media_play) { onActionListener?.onMediaPlayPause() })
+        val playPauseRes = if (media.isPlaying) R.drawable.ic_media_pause else R.drawable.ic_media_play
+        controls.addView(makeBtn(playPauseRes) { onActionListener?.onMediaPlayPause() })
         controls.addView(makeBtn(R.drawable.ic_media_next) { onActionListener?.onMediaNext() })
 
         card.addView(controls)
