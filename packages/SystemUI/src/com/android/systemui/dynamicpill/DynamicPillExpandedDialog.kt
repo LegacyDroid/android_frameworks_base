@@ -114,6 +114,10 @@ class DynamicPillExpandedDialog(
         val view = buildExpandedView(state)
         containerView = view
 
+        // Hide the view until the morph initial state is set up; without
+        // this the expanded card flashes at full size for one frame before
+        // the morph animation scales it down to the pill origin.
+        view.alpha = 0f
         val params = createLayoutParams()
         windowManager.addView(view, params)
         isShowing = true
@@ -277,6 +281,8 @@ class DynamicPillExpandedDialog(
 
         container.post {
             if (!isShowing || isDismissing) return@post
+            // Restore visibility now that the morph initial state is set up.
+            view.alpha = 1f
             val cw = container.width.toFloat()
             val ch = container.height.toFloat()
             if (cw <= 0f || ch <= 0f) return@post
