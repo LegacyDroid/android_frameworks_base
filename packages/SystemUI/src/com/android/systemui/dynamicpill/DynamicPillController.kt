@@ -76,8 +76,11 @@ class DynamicPillController @Inject constructor(
             "com.android.deskclock.action.PILL_CLOCK_STATE_CHANGED"
         private const val PILL_CLOCK_STATE_REQUEST =
             "com.android.deskclock.action.REQUEST_PILL_CLOCK_STATE"
+        private const val PILL_CLOCK_COMMAND =
+            "com.android.deskclock.action.PILL_CLOCK_COMMAND"
         private const val EXTRA_TYPE = "type"
         private const val EXTRA_STATE = "state"
+        private const val EXTRA_COMMAND = "command"
         private const val EXTRA_REMAINING_MS = "remaining_ms"
         private const val EXTRA_TOTAL_MS = "total_ms"
         private const val EXTRA_ELAPSED_MS = "elapsed_ms"
@@ -352,6 +355,31 @@ class DynamicPillController @Inject constructor(
 
     override fun onMediaPrevious() {
         mediaController?.transportControls?.skipToPrevious()
+    }
+
+    /** Clock card action dispatch — sends commands to DeskClock. */
+    override fun onClockPauseResume() {
+        val clock = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock ?: return
+        val command = if (clock.isPaused) "resume" else "pause"
+        val type = if (clock.isStopwatch) "stopwatch" else "timer"
+        sendClockCommand(type, command)
+    }
+
+    override fun onClockLap() {
+        sendClockCommand("stopwatch", "lap")
+    }
+
+    override fun onClockAddMinute() {
+        sendClockCommand("timer", "add_minute")
+    }
+
+    private fun sendClockCommand(type: String, command: String) {
+        val intent = android.content.Intent(PILL_CLOCK_COMMAND).apply {
+            setPackage(DESKCLOCK_PACKAGE)
+            putExtra(EXTRA_TYPE, type)
+            putExtra(EXTRA_COMMAND, command)
+        }
+        context.sendBroadcast(intent)
     }
 
     private fun onMediaSessionsChanged(controllers: List<MediaController>?) {

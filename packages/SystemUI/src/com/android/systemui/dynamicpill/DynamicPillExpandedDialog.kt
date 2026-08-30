@@ -460,7 +460,7 @@ class DynamicPillExpandedDialog(
         controls.addView(makeBtn(pauseResumeRes) { onActionListener?.onClockPauseResume() })
 
         if (clock.isStopwatch) {
-            controls.addView(makeBtn(R.drawable.ic_add) { onActionListener?.onClockLap() })
+            controls.addView(makeBtn(R.drawable.ic_lap) { onActionListener?.onClockLap() })
         } else {
             controls.addView(makeBtn(R.drawable.ic_add) { onActionListener?.onClockAddMinute() })
         }
