@@ -201,10 +201,6 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                     mExpandedDialog = new DynamicPillExpandedDialog(getContext(), wm);
                     mExpandedDialog.setOnDismissListener(() -> {
                         mDynamicPillController.setExpanded(false);
-                        if (mDynamicPillView != null) {
-                            mDynamicPillView.setVisibility(View.VISIBLE);
-                            mDynamicPillView.setAlpha(1f);
-                        }
                         return null;
                     });
                 }
