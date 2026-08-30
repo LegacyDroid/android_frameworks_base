@@ -313,6 +313,10 @@ class DynamicPillExpandedDialog(
                 container.translationX = startTransX
                 container.translationY = startTransY
 
+                // Zero out padding during morph so the scale matches the pill
+                // dimensions exactly (padding distorts the aspect ratio).
+                container.setPadding(0, 0, 0, 0)
+
                 val containerBg = container.background as? GradientDrawable
                 containerBg?.setColor(pillHighlightColor)
 
@@ -376,6 +380,9 @@ class DynamicPillExpandedDialog(
                 animator.interpolator = BOUNCY
                 animator.addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) {
+                        // Restore padding now that morph is done.
+                        val pad = dpToPx(8)
+                        container.setPadding(pad, pad, pad, pad)
                         expandMorphFinished?.invoke()
                     }
                 })
