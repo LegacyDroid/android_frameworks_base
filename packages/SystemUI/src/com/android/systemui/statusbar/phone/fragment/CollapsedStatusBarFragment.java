@@ -260,12 +260,12 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                                         return true;
                                     }
                                 });
-                        mExpandedDialog.show(state, pillRect);
+                        mExpandedDialog.show(state, pillRect, getPillHighlightColor());
                     } else {
                         int[] loc = new int[2];
                         mDynamicPillView.getLocationOnScreen(loc);
                         int[] pillRect = { loc[0], loc[1], mDynamicPillView.getWidth(), mDynamicPillView.getHeight() };
-                        mExpandedDialog.show(state, pillRect);
+                        mExpandedDialog.show(state, pillRect, getPillHighlightColor());
                     }
                 } else {
                     mExpandedDialog.updateContent(state);
@@ -318,6 +318,23 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             }
         }
     };
+
+    /** Extract the pill's current highlight color for the morph cross-fade. */
+    private int getPillHighlightColor() {
+        if (mDynamicPillView == null) return 0;
+        android.graphics.drawable.Drawable bg = mDynamicPillView.getBackground();
+        if (bg instanceof android.graphics.drawable.GradientDrawable) {
+            android.content.res.ColorStateList csl = ((android.graphics.drawable.GradientDrawable) bg).getColor();
+            if (csl != null) return csl.getDefaultColor();
+        }
+        // Fallback: resolve colorAccentPrimary from theme (matches DynamicPillView).
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (getContext().getTheme().resolveAttribute(
+                com.android.internal.R.attr.colorAccentPrimary, tv, true)) {
+            return tv.data;
+        }
+        return 0xFF6750A4;
+    }
 
     private int measureDynamicPillWidth() {
         if (mDynamicPillView == null) {

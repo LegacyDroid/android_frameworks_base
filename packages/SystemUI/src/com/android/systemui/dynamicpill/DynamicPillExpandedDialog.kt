@@ -66,6 +66,7 @@ class DynamicPillExpandedDialog(
     private var pillScreenY = 0
     private var pillWidth = 0
     private var pillHeight = 0
+    private var pillHighlightColor = 0
     private var onMorphStarted: (() -> Unit)? = null
     private var onMorphFinished: (() -> Unit)? = null
 
@@ -100,7 +101,7 @@ class DynamicPillExpandedDialog(
         onActionListener = listener
     }
 
-    fun show(state: PillState, pillRect: IntArray? = null) {
+    fun show(state: PillState, pillRect: IntArray? = null, pillColor: Int = surfaceColor()) {
         if (isDismissing) return
         if (isShowing) {
             updateContent(state)
@@ -113,6 +114,7 @@ class DynamicPillExpandedDialog(
             pillWidth = pillRect[2]
             pillHeight = pillRect[3]
         }
+        pillHighlightColor = pillColor
 
         val view = buildExpandedView(state)
         containerView = view
@@ -205,7 +207,7 @@ class DynamicPillExpandedDialog(
             }
 
             val dismissStartColor: Int = surfaceColor()
-            val dismissEndColor: Int = containerBg?.color?.defaultColor ?: surfaceColor()
+            val dismissEndColor: Int = pillHighlightColor
             val colorAnimator = ValueAnimator.ofArgb(dismissStartColor, dismissEndColor).apply {
                 addUpdateListener { anim ->
                     containerBg?.setColor(anim.animatedValue as Int)
@@ -322,6 +324,10 @@ class DynamicPillExpandedDialog(
                 val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
                 val targetCornerPx = dpToPxF(CARD_CORNER_RADIUS_DP)
 
+                // Start with the pill's highlight color so the morph cross-fades
+                // from the pill accent to the expanded surface color.
+                containerBg?.setColor(pillHighlightColor)
+
                 val childCount = container.childCount
 
                 for (i in 0 until childCount) {
@@ -355,7 +361,7 @@ class DynamicPillExpandedDialog(
 
                 // Smoothly cross-fade the container background color in case
                 // the pill and expanded surfaces differ (e.g. fallback colors).
-                val startColor: Int = containerBg?.color?.defaultColor ?: surfaceColor()
+                val startColor: Int = pillHighlightColor
                 val endColor: Int = surfaceColor()
                 val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
                     addUpdateListener { anim ->
