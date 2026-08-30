@@ -330,22 +330,18 @@ class DynamicPillExpandedDialog(
 
                 val childCount = container.childCount
 
-                // Phase 3: content cards fade in AFTER color transition is underway.
+                // Phase 3: content cards fade in — no bounce, no scale.
+                // The container's bouncy morph already provides all the motion;
+                // cards just appear as the morph settles.
                 for (i in 0 until childCount) {
                     val child = container.getChildAt(i)
                     child.alpha = 0f
-                    child.scaleX = 0.6f
-                    child.scaleY = 0.6f
-                    child.translationY = 24f
 
                     child.animate()
                         .alpha(1f)
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .translationY(0f)
-                        .setDuration((ANIM_DURATION_MS * 0.55f).toLong())
-                        .setStartDelay((ANIM_DURATION_MS * 0.45f).toLong() + i * 28L)
-                        .setInterpolator(BOUNCY)
+                        .setDuration((ANIM_DURATION_MS * 0.4f).toLong())
+                        .setStartDelay((ANIM_DURATION_MS * 0.55f).toLong() + i * 28L)
+                        .setInterpolator(EASE_OUT)
                         .start()
                 }
 
