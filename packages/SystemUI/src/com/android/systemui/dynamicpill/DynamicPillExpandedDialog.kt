@@ -206,7 +206,7 @@ class DynamicPillExpandedDialog(
                 }
             }
 
-            val dismissStartColor: Int = surfaceColor()
+            val dismissStartColor: Int = cardColor()
             val dismissEndColor: Int = pillHighlightColor
             val colorAnimator = ValueAnimator.ofArgb(dismissStartColor, dismissEndColor).apply {
                 addUpdateListener { anim ->
@@ -372,7 +372,7 @@ class DynamicPillExpandedDialog(
 
                 // Color cross-fade: faster — starts at 20%, runs 60%.
                 val startColor: Int = pillHighlightColor
-                val endColor: Int = surfaceColor()
+                val endColor: Int = cardColor()
                 val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
                     startDelay = (ANIM_DURATION_MS * 0.20f).toLong()
                     duration = (ANIM_DURATION_MS * 0.60f).toLong()
@@ -576,7 +576,7 @@ class DynamicPillExpandedDialog(
             cornerRadius = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, PILL_CORNER_RADIUS_DP, resources.displayMetrics,
             )
-            setColor(surfaceColor())
+            setColor(cardColor())
         }
     }
 
