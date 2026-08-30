@@ -20,6 +20,9 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
+import android.graphics.drawable.ShapeDrawable
+import android.graphics.drawable.shapes.RoundRectShape
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -394,7 +397,7 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = media.title.ifEmpty { "Unknown" }
-            setTextColor(0xFF000000.toInt())
+            setTextColor(textColor(true))
             textSize = 14f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -402,7 +405,7 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = media.artist
-            setTextColor(0x80000000.toInt())
+            setTextColor(textColor(false))
             textSize = 12f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -439,7 +442,7 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = if (clock.isStopwatch) "Stopwatch" else "Timer"
-            setTextColor(0x80000000.toInt())
+            setTextColor(textColor(false))
             textSize = 12f
         })
 
@@ -450,7 +453,7 @@ class DynamicPillExpandedDialog(
                 (clock.totalCountdownMillis - clock.elapsedMillis).coerceAtLeast(0L)
             }
             text = formatTime(displayMillis)
-            setTextColor(0xFF000000.toInt())
+            setTextColor(textColor(true))
             textSize = 20f
         })
 
@@ -489,13 +492,13 @@ class DynamicPillExpandedDialog(
 
         info.addView(TextView(context).apply {
             text = if (recording.isScreenRecord) "Screen Recording" else "Recording"
-            setTextColor(0x80000000.toInt())
+            setTextColor(textColor(false))
             textSize = 12f
         })
 
         info.addView(TextView(context).apply {
             text = formatTime(recording.elapsedMillis)
-            setTextColor(0xFF000000.toInt())
+            setTextColor(textColor(true))
             textSize = 20f
         })
 
@@ -517,7 +520,7 @@ class DynamicPillExpandedDialog(
     private fun makeBtn(drawableRes: Int, onClick: () -> Unit): ImageButton {
         return ImageButton(context).apply {
             setImageResource(drawableRes)
-            background = null
+            background = createRipple(20f)
             val size = dpToPx(40)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 marginStart = dpToPx(4)
@@ -526,7 +529,7 @@ class DynamicPillExpandedDialog(
             setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
             setOnClickListener { onClick() }
             colorFilter = android.graphics.PorterDuffColorFilter(
-                0xFF000000.toInt(),
+                iconTint(),
                 android.graphics.PorterDuff.Mode.SRC_IN,
             )
         }
@@ -537,16 +540,16 @@ class DynamicPillExpandedDialog(
             cornerRadius = TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, PILL_CORNER_RADIUS_DP, resources.displayMetrics,
             )
-            setColor(resolveSurfaceColor())
+            setColor(surfaceColor())
         }
     }
 
     private fun createCardBackground(): GradientDrawable {
         return GradientDrawable().apply {
             cornerRadius = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics,
+                TypedValue.COMPLEX_UNIT_DIP, CARD_CORNER_RADIUS_DP, resources.displayMetrics,
             )
-            setColor(0x1AFFFFFF)
+            setColor(cardColor())
         }
     }
 
@@ -570,14 +573,6 @@ class DynamicPillExpandedDialog(
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
 
-    private fun resolveSurfaceColor(): Int {
-        val tv = TypedValue()
-        return if (context.theme.resolveAttribute(
-                com.android.internal.R.attr.colorAccentPrimary, tv, true
-            )
-        ) tv.data else 0xFF6750A4.toInt()
-    }
-
     private fun dpToPx(dp: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, dp.toFloat(), resources.displayMetrics,
     ).toInt()
@@ -585,6 +580,79 @@ class DynamicPillExpandedDialog(
     private fun dpToPxF(dp: Float): Float = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics,
     )
+
+    // --- Material You dynamic colors ---
+
+    /** Resolve a framework @android:color resource (e.g. system_accent1_200). */
+    private fun resolveColor(resId: Int): Int {
+        return try {
+            context.resources.getColor(resId, context.theme)
+        } catch (e: Exception) {
+            // Fallback chain: neutral2 surface → accent → hardcoded.
+            when (resId) {
+                android.R.color.system_neutral2_900 -> 0xFF1C1B1F.toInt()
+                android.R.color.system_neutral2_10 -> 0xFFF4EFF4.toInt()
+                android.R.color.system_neutral1_900 -> 0xFF1C1B1F.toInt()
+                android.R.color.system_neutral1_10 -> 0xFFE6E1E5.toInt()
+                android.R.color.system_neutral1_60 -> 0xFF938F99.toInt()
+                android.R.color.system_accent1_200 -> 0xFFD0BCFF.toInt()
+                android.R.color.system_accent1_100 -> 0xFFE8DEFF.toInt()
+                else -> 0xFFFFFFFF.toInt()
+            }
+        }
+    }
+
+    /** On-surface text: primary = high-emphasis, secondary = medium-emphasis. */
+    private fun textColor(primary: Boolean): Int =
+        resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.color.system_neutral1_60)
+
+    /** Surface container background — tonal surface with elevation. */
+    private fun surfaceColor(): Int = resolveColor(android.R.color.system_neutral2_900)
+
+    /** Card surface — slightly elevated above container. */
+    private fun cardColor(): Int {
+        val base = resolveColor(android.R.color.system_neutral1_900)
+        // 8% white overlay for elevation (Material3 tonal elevation).
+        return blendAlpha(base, 0x14FFFFFF)
+    }
+
+    /** Icon tint for action buttons — accent1_200 (light accent on dark surface). */
+    private fun iconTint(): Int = resolveColor(android.R.color.system_accent1_200)
+
+    /** Ripple color — accent1_100 at 20% opacity. */
+    private fun rippleColor(): Int = blendAlpha(resolveColor(android.R.color.system_accent1_100), 0x33000000)
+
+    /** Blend a background color with a foreground at the foreground's alpha. */
+    private fun blendAlpha(bg: Int, fg: Int): Int {
+        val fgA = (fg ushr 24) and 0xFF
+        val fgR = (fg shr 16) and 0xFF
+        val fgG = (fg shr 8) and 0xFF
+        val fgB = fg and 0xFF
+        val bgR = (bg shr 16) and 0xFF
+        val bgG = (bg shr 8) and 0xFF
+        val bgB = bg and 0xFF
+        val a = fgA / 255f
+        val r = (fgR * a + bgR * (1 - a)).toInt()
+        val g = (fgG * a + bgG * (1 - a)).toInt()
+        val b = (fgB * a + bgB * (1 - a)).toInt()
+        return 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
+    }
+
+    /** Material ripple drawable with the given corner radius. */
+    private fun createRipple(cornerRadiusDp: Float): RippleDrawable {
+        val radiusPx = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, cornerRadiusDp, resources.displayMetrics,
+        )
+        val outerShape = RoundRectShape(floatArrayOf(radiusPx, radiusPx, radiusPx, radiusPx), null, null)
+        val mask = ShapeDrawable(outerShape).apply {
+            paint.color = 0xFFFFFFFF.toInt()
+        }
+        return RippleDrawable(
+            android.content.res.ColorStateList.valueOf(rippleColor()),
+            null,
+            mask,
+        )
+    }
 
     private val resources get() = context.resources
 }
