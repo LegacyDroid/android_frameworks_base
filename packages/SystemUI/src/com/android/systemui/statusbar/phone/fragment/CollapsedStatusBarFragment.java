@@ -27,6 +27,7 @@ import android.provider.Settings;
 import android.telephony.SubscriptionManager;
 import android.util.ArrayMap;
 import android.util.IndentingPrintWriter;
+import android.util.Log;
 import android.util.SparseArray;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -136,6 +137,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
 
     /** Whether the compact pill is logically visible (used to drive fade in/out). */
     private boolean mPillVisible = false;
+
+    /** Last pill visibility/expand state seen, for transition logging. */
+    private boolean mLastLoggedShown = false;
+    private boolean mLastLoggedExpanded = false;
     private View mNotificationIconArea;
     private View mNotificationIconAreaInner;
     private View mNetworkTrafficHolderStart;
@@ -193,6 +198,14 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
             mDynamicPillView.updateState(state);
             boolean expanded = state.isExpanded();
             boolean showPill = state.isPillVisible();
+
+            if (showPill != mLastLoggedShown || expanded != mLastLoggedExpanded) {
+                Log.d(TAG, "pill show=" + showPill + " expanded=" + expanded
+                        + " hidden=" + state.isHiddenForForeground()
+                        + " sessions=" + state.getActiveSessions());
+                mLastLoggedShown = showPill;
+                mLastLoggedExpanded = expanded;
+            }
 
             if (mClockView != null) {
                 mClockView.setVisibility(showPill ? View.GONE : View.VISIBLE);
@@ -282,22 +295,17 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                         () -> {
                             // Reveal the pill only after the dismiss animation
                             // completes; drop the manual icon offset once the
-                            // pill takes its layout slot again.
+                            // pill takes its layout slot again. The offset is
+                            // reset directly instead of waiting for a draw
+                            // pass, which can be missed and leave the icons
+                            // permanently shifted.
+                            if (mNotificationIconArea != null) {
+                                mNotificationIconArea.animate().cancel();
+                                mNotificationIconArea.setTranslationX(0f);
+                            }
                             mDynamicPillView.setVisibility(View.VISIBLE);
                             mDynamicPillView.setAlpha(1f);
                             mPillVisible = true;
-                            if (mNotificationIconArea != null) {
-                                mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
-                                        new android.view.ViewTreeObserver.OnPreDrawListener() {
-                                            @Override
-                                            public boolean onPreDraw() {
-                                                mNotificationIconArea.getViewTreeObserver().removeOnPreDrawListener(this);
-                                                mNotificationIconArea.animate().cancel();
-                                                mNotificationIconArea.setTranslationX(0f);
-                                                return true;
-                                            }
-                                        });
-                            }
                         }
                     );
                     mExpandedDialog.dismiss();
