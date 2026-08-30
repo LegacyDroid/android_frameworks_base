@@ -125,6 +125,19 @@ class DynamicPillExpandedDialog(
         isDismissing = true
         isShowing = false
 
+        // Stop an in-flight expand morph: cancelling fires the expand
+        // animator's own (captured) end listener, and the dismiss animation
+        // then starts from the current visual state instead of fighting the
+        // expand animator for the same properties.
+        activeAnimator?.cancel()
+        activeAnimator = null
+
+        // Capture the morph listeners bound to THIS dismiss animation. Reading
+        // the members at fire time would let a still-running expand animator
+        // invoke the dismiss listeners and reveal the pill mid-morph.
+        val dismissMorphStarted = onMorphStarted
+        val dismissMorphFinished = onMorphFinished
+
         val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container)
         if (container != null && pillWidth > 0 && pillHeight > 0 && container.width > 0) {
             val cw = container.width.toFloat()
@@ -137,7 +150,7 @@ class DynamicPillExpandedDialog(
             val targetTranslationX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
             val targetTranslationY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
 
-            onMorphStarted?.invoke()
+            dismissMorphStarted?.invoke()
 
             val containerBg = container.background as? GradientDrawable
             val startCornerRadius = containerBg?.cornerRadius ?: dpToPxF(CARD_CORNER_RADIUS_DP)
@@ -170,10 +183,10 @@ class DynamicPillExpandedDialog(
                 )
             }
 
-            val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, 1f, targetScaleX)
-            val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, 1f, targetScaleY)
-            val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, 0f, targetTranslationX)
-            val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, 0f, targetTranslationY)
+            val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, container.scaleX, targetScaleX)
+            val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, container.scaleY, targetScaleY)
+            val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, container.translationX, targetTranslationX)
+            val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, container.translationY, targetTranslationY)
 
             val cornerAnimator = ValueAnimator.ofFloat(startCornerRadius, pillCornerPx).apply {
                 addUpdateListener { anim ->
@@ -192,7 +205,7 @@ class DynamicPillExpandedDialog(
             animator.interpolator = EASE_IN_OUT
             animator.addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    onMorphFinished?.invoke()
+                    dismissMorphFinished?.invoke()
                     removeViewFromWindow(view)
                     onDismissListener?.invoke()
                     isDismissing = false
@@ -201,6 +214,7 @@ class DynamicPillExpandedDialog(
             activeAnimator = animator
             animator.start()
         } else {
+            dismissMorphFinished?.invoke()
             removeViewFromWindow(view)
             onDismissListener?.invoke()
             isDismissing = false
@@ -259,6 +273,7 @@ class DynamicPillExpandedDialog(
         val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container) ?: return
 
         container.post {
+            if (!isShowing || isDismissing) return@post
             val cw = container.width.toFloat()
             val ch = container.height.toFloat()
             if (cw <= 0f || ch <= 0f) return@post
@@ -277,7 +292,11 @@ class DynamicPillExpandedDialog(
                 container.translationX = startTransX
                 container.translationY = startTransY
 
-                onMorphStarted?.invoke()
+                // Capture the listeners bound to this expand animation so a
+                // later dismiss re-arming the members can not affect this one.
+                val expandMorphStarted = onMorphStarted
+                val expandMorphFinished = onMorphFinished
+                expandMorphStarted?.invoke()
 
                 val containerBg = container.background as? GradientDrawable
                 val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
@@ -320,7 +339,7 @@ class DynamicPillExpandedDialog(
                 animator.interpolator = BOUNCY
                 animator.addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) {
-                        onMorphFinished?.invoke()
+                        expandMorphFinished?.invoke()
                     }
                 })
                 activeAnimator = animator
