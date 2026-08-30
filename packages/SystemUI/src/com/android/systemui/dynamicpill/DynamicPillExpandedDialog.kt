@@ -204,9 +204,15 @@ class DynamicPillExpandedDialog(
                 }
             }
 
+            val colorAnimator = ValueAnimator.ofArgb(surfaceColor(), containerBg?.color ?: surfaceColor()).apply {
+                addUpdateListener { anim ->
+                    containerBg?.setColor(anim.animatedValue as Int)
+                }
+            }
+
             val animator = android.animation.AnimatorSet()
             animator.playTogether(
-                scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator,
+                scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator,
                 *cardAlphaAnimators.toTypedArray(),
                 *cardScaleXAnimators.toTypedArray(),
                 *cardScaleYAnimators.toTypedArray(),
@@ -345,8 +351,18 @@ class DynamicPillExpandedDialog(
                     }
                 }
 
+                // Smoothly cross-fade the container background color in case
+                // the pill and expanded surfaces differ (e.g. fallback colors).
+                val startColor = containerBg?.color ?: surfaceColor()
+                val endColor = surfaceColor()
+                val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
+                    addUpdateListener { anim ->
+                        containerBg?.setColor(anim.animatedValue as Int)
+                    }
+                }
+
                 val animator = android.animation.AnimatorSet()
-                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator)
+                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator)
                 animator.duration = ANIM_DURATION_MS
                 animator.interpolator = BOUNCY
                 animator.addListener(object : android.animation.AnimatorListenerAdapter() {

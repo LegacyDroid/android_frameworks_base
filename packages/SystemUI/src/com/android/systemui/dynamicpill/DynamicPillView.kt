@@ -221,12 +221,10 @@ class DynamicPillView @JvmOverloads constructor(
     }
 
     private fun resolveSurfaceColor(): Int {
-        val typedValue = TypedValue()
-        val theme = context.theme
-        return if (theme.resolveAttribute(com.android.internal.R.attr.colorAccentPrimary, typedValue, true)) {
-            typedValue.data
-        } else {
-            0xFF6750A4.toInt()
+        return try {
+            context.resources.getColor(android.R.color.system_neutral2_900, context.theme)
+        } catch (e: Exception) {
+            0xFF1C1B1F.toInt()
         }
     }
 }
