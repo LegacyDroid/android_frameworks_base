@@ -237,9 +237,14 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                 if (!mExpandedDialog.isShowing()) {
                     if (mNotificationIconArea != null) {
                         final int oldRight = mNotificationIconArea.getRight();
+                        // Force a measure pass so getWidth()/getHeight() reflect
+                        // the current text content (updateState just changed it).
+                        mDynamicPillView.measure(
+                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                                View.MeasureSpec.makeMeasureSpec(mDynamicPillView.getHeight(), View.MeasureSpec.EXACTLY));
                         int[] loc = new int[2];
                         mDynamicPillView.getLocationOnScreen(loc);
-                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getWidth(), mDynamicPillView.getHeight() };
+                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getMeasuredWidth(), mDynamicPillView.getHeight() };
                         mDynamicPillView.setVisibility(View.GONE);
                         mPillVisible = false;
                         mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
@@ -262,9 +267,12 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                                 });
                         mExpandedDialog.show(state, pillRect, getPillHighlightColor());
                     } else {
+                        mDynamicPillView.measure(
+                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                                View.MeasureSpec.makeMeasureSpec(mDynamicPillView.getHeight(), View.MeasureSpec.EXACTLY));
                         int[] loc = new int[2];
                         mDynamicPillView.getLocationOnScreen(loc);
-                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getWidth(), mDynamicPillView.getHeight() };
+                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getMeasuredWidth(), mDynamicPillView.getHeight() };
                         mExpandedDialog.show(state, pillRect, getPillHighlightColor());
                     }
                 } else {
