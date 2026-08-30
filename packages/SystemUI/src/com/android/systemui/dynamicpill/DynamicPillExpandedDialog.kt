@@ -643,7 +643,7 @@ resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.colo
         val radiusPx = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, cornerRadiusDp, resources.displayMetrics,
         )
-        val outerShape = RoundRectShape(floatArrayOf(radiusPx, radiusPx, radiusPx, radiusPx), null, null)
+        val outerShape = RoundRectShape(floatArrayOf(radiusPx, radiusPx, radiusPx, radiusPx, radiusPx, radiusPx, radiusPx, radiusPx), null, null)
         val mask = ShapeDrawable(outerShape).apply {
             paint.color = 0xFFFFFFFF.toInt()
         }
