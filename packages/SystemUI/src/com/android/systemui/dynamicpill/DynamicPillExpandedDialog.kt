@@ -294,8 +294,6 @@ class DynamicPillExpandedDialog(
 
         container.post {
             if (!isShowing || isDismissing) return@post
-            // Restore visibility now that the morph initial state is set up.
-            view.alpha = 1f
             val cw = container.width.toFloat()
             val ch = container.height.toFloat()
             if (cw <= 0f || ch <= 0f) return@post
@@ -309,43 +307,58 @@ class DynamicPillExpandedDialog(
                 val startTransX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
                 val startTransY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
 
+                // --- Set ALL initial states while root is still alpha=0 ---
                 container.scaleX = startScaleX
                 container.scaleY = startScaleY
                 container.translationX = startTransX
                 container.translationY = startTransY
 
-                // Capture the listeners bound to this expand animation so a
-                // later dismiss re-arming the members can not affect this one.
+                val containerBg = container.background as? GradientDrawable
+                containerBg?.setColor(pillHighlightColor)
+
+                val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
+                val targetCornerPx = dpToPxF(CARD_CORNER_RADIUS_DP)
+                containerBg?.cornerRadius = pillCornerPx
+
+                val childCount = container.childCount
+                for (i in 0 until childCount) {
+                    container.getChildAt(i).alpha = 0f
+                }
+
+                // --- NOW reveal with correct initial state (no flash) ---
+                view.alpha = 1f
+
+                // --- THEN start animations ---
                 val expandMorphStarted = onMorphStarted
                 val expandMorphFinished = onMorphFinished
                 expandMorphStarted?.invoke()
 
-                val containerBg = container.background as? GradientDrawable
-                val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
-                val targetCornerPx = dpToPxF(CARD_CORNER_RADIUS_DP)
-
-                // Start with the pill's highlight color so the morph cross-fades
-                // from the pill accent to the expanded surface color.
-                containerBg?.setColor(pillHighlightColor)
-
-                val childCount = container.childCount
-
-                // Phase 3: content cards fade in — no bounce, no scale.
-                // The container's bouncy morph already provides all the motion;
-                // cards just appear as the morph settles.
+                // Cards: fade in and cross-fade bg color in sync with container.
+                val targetCardColor = cardColor()
+                val cardAnimators = mutableListOf<android.animation.Animator>()
                 for (i in 0 until childCount) {
                     val child = container.getChildAt(i)
-                    child.alpha = 0f
+                    val childBg = child.background as? GradientDrawable
+                    childBg?.setColor(pillHighlightColor)
+
+                    // Card bg color follows the same timing as container color.
+                    cardAnimators.add(ValueAnimator.ofArgb(pillHighlightColor, targetCardColor).apply {
+                        startDelay = (ANIM_DURATION_MS * 0.20f).toLong()
+                        duration = (ANIM_DURATION_MS * 0.60f).toLong()
+                        addUpdateListener { anim ->
+                            childBg?.setColor(anim.animatedValue as Int)
+                        }
+                    })
 
                     child.animate()
                         .alpha(1f)
-                        .setDuration((ANIM_DURATION_MS * 0.4f).toLong())
-                        .setStartDelay((ANIM_DURATION_MS * 0.55f).toLong() + i * 28L)
+                        .setDuration((ANIM_DURATION_MS * 0.35f).toLong())
+                        .setStartDelay((ANIM_DURATION_MS * 0.40f).toLong() + i * 24L)
                         .setInterpolator(EASE_OUT)
                         .start()
                 }
 
-                // Phase 1: scale + translate + corners — full duration.
+                // Scale + translate + corners — full duration.
                 val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, startScaleX, 1f)
                 val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, startScaleY, 1f)
                 val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, startTransX, 0f)
@@ -357,20 +370,19 @@ class DynamicPillExpandedDialog(
                     }
                 }
 
-                // Phase 2: color cross-fade starts at 30% so the container is
-                // already near full size before the color shifts.
+                // Color cross-fade: faster — starts at 20%, runs 60%.
                 val startColor: Int = pillHighlightColor
                 val endColor: Int = surfaceColor()
                 val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
-                    startDelay = (ANIM_DURATION_MS * 0.30f).toLong()
-                    duration = (ANIM_DURATION_MS * 0.70f).toLong()
+                    startDelay = (ANIM_DURATION_MS * 0.20f).toLong()
+                    duration = (ANIM_DURATION_MS * 0.60f).toLong()
                     addUpdateListener { anim ->
                         containerBg?.setColor(anim.animatedValue as Int)
                     }
                 }
 
                 val animator = android.animation.AnimatorSet()
-                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator)
+                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator, *cardAnimators.toTypedArray())
                 animator.duration = ANIM_DURATION_MS
                 animator.interpolator = BOUNCY
                 animator.addListener(object : android.animation.AnimatorListenerAdapter() {
