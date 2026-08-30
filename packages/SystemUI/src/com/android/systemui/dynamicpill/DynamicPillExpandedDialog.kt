@@ -444,7 +444,12 @@ class DynamicPillExpandedDialog(
         })
 
         info.addView(TextView(context).apply {
-            text = formatTime(clock.elapsedMillis)
+            val displayMillis = if (clock.isStopwatch) {
+                clock.elapsedMillis
+            } else {
+                (clock.totalCountdownMillis - clock.elapsedMillis).coerceAtLeast(0L)
+            }
+            text = formatTime(displayMillis)
             setTextColor(0xFF000000.toInt())
             textSize = 20f
         })
@@ -460,7 +465,7 @@ class DynamicPillExpandedDialog(
         controls.addView(makeBtn(pauseResumeRes) { onActionListener?.onClockPauseResume() })
 
         if (clock.isStopwatch) {
-            controls.addView(makeBtn(R.drawable.ic_lap) { onActionListener?.onClockLap() })
+            controls.addView(makeBtn(R.drawable.ic_add_circle) { onActionListener?.onClockLap() })
         } else {
             controls.addView(makeBtn(R.drawable.ic_add) { onActionListener?.onClockAddMinute() })
         }
