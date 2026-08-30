@@ -330,6 +330,7 @@ class DynamicPillExpandedDialog(
 
                 val childCount = container.childCount
 
+                // Phase 3: content cards fade in AFTER color transition is underway.
                 for (i in 0 until childCount) {
                     val child = container.getChildAt(i)
                     child.alpha = 0f
@@ -342,12 +343,13 @@ class DynamicPillExpandedDialog(
                         .scaleX(1f)
                         .scaleY(1f)
                         .translationY(0f)
-                        .setDuration(ANIM_DURATION_MS)
-                        .setStartDelay(50L + i * 28L)
+                        .setDuration((ANIM_DURATION_MS * 0.55f).toLong())
+                        .setStartDelay((ANIM_DURATION_MS * 0.45f).toLong() + i * 28L)
                         .setInterpolator(BOUNCY)
                         .start()
                 }
 
+                // Phase 1: scale + translate + corners — full duration.
                 val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, startScaleX, 1f)
                 val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, startScaleY, 1f)
                 val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, startTransX, 0f)
@@ -359,11 +361,13 @@ class DynamicPillExpandedDialog(
                     }
                 }
 
-                // Smoothly cross-fade the container background color in case
-                // the pill and expanded surfaces differ (e.g. fallback colors).
+                // Phase 2: color cross-fade starts at 30% so the container is
+                // already near full size before the color shifts.
                 val startColor: Int = pillHighlightColor
                 val endColor: Int = surfaceColor()
                 val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
+                    startDelay = (ANIM_DURATION_MS * 0.30f).toLong()
+                    duration = (ANIM_DURATION_MS * 0.70f).toLong()
                     addUpdateListener { anim ->
                         containerBg?.setColor(anim.animatedValue as Int)
                     }
