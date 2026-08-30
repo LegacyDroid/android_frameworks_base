@@ -163,7 +163,6 @@ class DynamicPillController @Inject constructor(
     private val clockStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(receiverContext: Context?, intent: Intent?) {
             if (intent == null) return
-            if (intent.getPackage() != DESKCLOCK_PACKAGE) return
             if (intent.action != PILL_CLOCK_STATE_CHANGED) return
             onClockStateBroadcast(intent)
         }
