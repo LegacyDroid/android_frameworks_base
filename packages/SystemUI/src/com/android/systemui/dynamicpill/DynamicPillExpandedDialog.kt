@@ -205,7 +205,7 @@ class DynamicPillExpandedDialog(
             }
 
             val dismissStartColor: Int = surfaceColor()
-            val dismissEndColor: Int = containerBg?.color ?: surfaceColor()
+            val dismissEndColor: Int = containerBg?.color?.defaultColor ?: surfaceColor()
             val colorAnimator = ValueAnimator.ofArgb(dismissStartColor, dismissEndColor).apply {
                 addUpdateListener { anim ->
                     containerBg?.setColor(anim.animatedValue as Int)
@@ -355,7 +355,7 @@ class DynamicPillExpandedDialog(
 
                 // Smoothly cross-fade the container background color in case
                 // the pill and expanded surfaces differ (e.g. fallback colors).
-                val startColor: Int = containerBg?.color ?: surfaceColor()
+                val startColor: Int = containerBg?.color?.defaultColor ?: surfaceColor()
                 val endColor: Int = surfaceColor()
                 val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
                     addUpdateListener { anim ->
