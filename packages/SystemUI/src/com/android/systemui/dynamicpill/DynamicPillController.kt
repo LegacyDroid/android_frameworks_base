@@ -100,17 +100,20 @@ class DynamicPillController @Inject constructor(
     /** Package of the app currently on top of the main display, or null if unavailable. */
     private var topPackage: String? = null
 
+    /** Package whose top position was observed once but not yet confirmed (hysteresis). */
+    private var pendingTopPackage: String? = null
+
     /** MediaController of the session currently shown in the pill, used for transport controls. */
     private var mediaController: MediaController? = null
     @Volatile private var mediaIsPlaying = false
 
     private val taskStackListener = object : TaskStackListener() {
         override fun onTaskStackChanged() {
-            refreshTopPackage()
+            mainHandler.post { refreshTopPackage() }
         }
 
         override fun onTaskMovedToFront(taskInfo: android.app.ActivityManager.RunningTaskInfo) {
-            refreshTopPackage()
+            mainHandler.post { refreshTopPackage() }
         }
     }
 
@@ -125,11 +128,12 @@ class DynamicPillController @Inject constructor(
 
     private val clockTicker = object : Runnable {
         override fun run() {
-            // Refresh the foreground app every tick so the hide rule can never go stale
-            // if a task-stack callback is missed.
+            if (!clockTickerRunning) return
+            // Reschedule first so a raised exception or early return in the tick
+            // body can never kill the foreground/hide refresh loop.
+            mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
             refreshTopPackage()
             advanceClockSession()
-            mainHandler.postDelayed(this, CLOCK_TICK_INTERVAL_MS)
         }
     }
 
@@ -269,9 +273,14 @@ class DynamicPillController @Inject constructor(
     private fun rebuildState() {
         val sorted = activeSessions.values.sortedByDescending { it.timestamp }
         val compact = sorted.firstOrNull()
+        val hidden = matchesForeground(compact)
+        if (hidden != currentState.isHiddenForForeground) {
+            Log.d(TAG, "pill hidden -> $hidden owner="
+                    + "${compact?.let { ownerPackage(it) }} top=$topPackage")
+        }
         currentState = currentState.copy(
             activeSessions = sorted,
-            isHiddenForForeground = matchesForeground(compact),
+            isHiddenForForeground = hidden,
         )
         dispatchState()
     }
@@ -437,11 +446,22 @@ class DynamicPillController @Inject constructor(
         } catch (e: Exception) {
             null
         }
-        if (pkg != topPackage) {
-            topPackage = pkg
-            Log.d(TAG, "Top package changed to $pkg")
-            rebuildState()
+        if (pkg == topPackage) {
+            // Read is stable; a previous pending change is confirmed stale.
+            pendingTopPackage = null
+            return
         }
+        // Apply a top-package change only after two consecutive identical
+        // readings. Task launches flap between the launcher and the target app,
+        // and a single transient reading would strobe the pill visibility.
+        if (pendingTopPackage != pkg) {
+            pendingTopPackage = pkg
+            return
+        }
+        pendingTopPackage = null
+        topPackage = pkg
+        Log.d(TAG, "Top package changed to $pkg")
+        rebuildState()
     }
 
     /** Whether the currently displayed session is owned by the foreground app. */
