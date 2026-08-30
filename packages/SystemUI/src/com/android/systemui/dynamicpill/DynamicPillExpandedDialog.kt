@@ -16,9 +16,16 @@
 
 package com.android.systemui.dynamicpill
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.ShapeDrawable
@@ -43,22 +50,24 @@ class DynamicPillExpandedDialog(
 ) {
 
     companion object {
-        private const val EXPANDED_MARGIN_HORIZONTAL_DP = 20
+        private const val EXPANDED_MARGIN_HORIZONTAL_DP = 16
+        private const val EXPANDED_MARGIN_TOP_DP = 48
         private const val CARD_CORNER_RADIUS_DP = 28f
-        private const val PILL_CORNER_RADIUS_DP = 100f
-        private const val ANIM_DURATION_MS = 380L
-        private const val DISMISS_DURATION_MS = 280L
+        private const val CARD_INNER_CORNER_RADIUS_DP = 20f
+        private const val EXPAND_DURATION_MS = 340L
+        private const val DISMISS_DURATION_MS = 260L
+        private const val SCRIM_MAX_ALPHA = 0.35f
 
-        private val EASE_OUT = PathInterpolator(0.0f, 0.0f, 0.2f, 1.0f)
-        private val EASE_IN_OUT = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
-        private val BOUNCY = PathInterpolator(0.34f, 1.4f, 0.64f, 1.0f)
-        private val SNAP = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
+        // Material 3 Emphasized Decelerate: fast initial burst, ultra-smooth settling
+        private val EXPAND_INTERPOLATOR = PathInterpolator(0.2f, 0.0f, 0.0f, 1.0f)
+        // Standard Decelerate: crisp and natural collapse
+        private val DISMISS_INTERPOLATOR = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
     }
 
     private var containerView: View? = null
     private var isShowing = false
     private var isDismissing = false
-    private var activeAnimator: android.animation.Animator? = null
+    private var activeAnimator: ValueAnimator? = null
     private var onActionListener: ActionListener? = null
     private var onDismissListener: (() -> Unit)? = null
 
@@ -102,26 +111,36 @@ class DynamicPillExpandedDialog(
     }
 
     fun show(state: PillState, pillRect: IntArray? = null, pillColor: Int = surfaceColor()) {
-        if (isDismissing) return
+        if (isDismissing) {
+            activeAnimator?.cancel()
+            activeAnimator = null
+            isDismissing = false
+        }
         if (isShowing) {
             updateContent(state)
             return
         }
 
-        if (pillRect != null && pillRect.size >= 4) {
+        if (pillRect != null && pillRect.size >= 4 && pillRect[2] > 0 && pillRect[3] > 0) {
             pillScreenX = pillRect[0]
             pillScreenY = pillRect[1]
             pillWidth = pillRect[2]
             pillHeight = pillRect[3]
+        } else {
+            val dm = context.resources.displayMetrics
+            val fallbackW = dpToPx(140)
+            val fallbackH = dpToPx(36)
+            pillScreenX = (dm.widthPixels - fallbackW) / 2
+            pillScreenY = dpToPx(8)
+            pillWidth = fallbackW
+            pillHeight = fallbackH
         }
         pillHighlightColor = pillColor
 
         val view = buildExpandedView(state)
         containerView = view
 
-        // Hide the view until the morph initial state is set up; without
-        // this the expanded card flashes at full size for one frame before
-        // the morph animation scales it down to the pill origin.
+        // Hide until first layout pass sets morph initial state
         view.alpha = 0f
         val params = createLayoutParams()
         windowManager.addView(view, params)
@@ -132,110 +151,54 @@ class DynamicPillExpandedDialog(
 
     fun dismiss() {
         if (!isShowing || isDismissing) return
-        val view = containerView ?: return
+        val rootView = containerView ?: return
+        val morphContainer = rootView.findViewWithTag<MorphCardContainer>("morph_container")
+        val scrimView = rootView.findViewWithTag<View>("scrim_view")
 
         isDismissing = true
         isShowing = false
 
-        // Stop an in-flight expand morph: cancelling fires the expand
-        // animator's own (captured) end listener, and the dismiss animation
-        // then starts from the current visual state instead of fighting the
-        // expand animator for the same properties.
         activeAnimator?.cancel()
         activeAnimator = null
 
-        // Capture the morph listeners bound to THIS dismiss animation. Reading
-        // the members at fire time would let a still-running expand animator
-        // invoke the dismiss listeners and reveal the pill mid-morph.
         val dismissMorphStarted = onMorphStarted
         val dismissMorphFinished = onMorphFinished
 
-        val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container)
-        if (container != null && pillWidth > 0 && pillHeight > 0 && container.width > 0 && container.height > 0) {
-            val cw = container.width.toFloat()
-            val ch = container.height.toFloat()
-            val targetScaleX = pillWidth / cw
-            val targetScaleY = pillHeight / ch
-
-            val containerLoc = IntArray(2)
-            container.getLocationOnScreen(containerLoc)
-            val targetTranslationX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
-            val targetTranslationY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
-
+        if (morphContainer != null && !morphContainer.startBounds.isEmpty && !morphContainer.endBounds.isEmpty) {
             dismissMorphStarted?.invoke()
 
-            val containerBg = container.background as? GradientDrawable
-            val startCornerRadius = containerBg?.cornerRadius ?: dpToPxF(CARD_CORNER_RADIUS_DP)
-            val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
-
-            val childCount = container.childCount
-            val cardAlphaAnimators = mutableListOf<android.animation.ObjectAnimator>()
-            val cardScaleXAnimators = mutableListOf<android.animation.ObjectAnimator>()
-            val cardScaleYAnimators = mutableListOf<android.animation.ObjectAnimator>()
-
-            for (i in 0 until childCount) {
-                val child = container.getChildAt(i)
-                val reverseIndex = (childCount - 1 - i)
-                val delay = reverseIndex * 18L
-
-                cardAlphaAnimators.add(
-                    android.animation.ObjectAnimator.ofFloat(child, View.ALPHA, 1f, 0f).apply {
-                        startDelay = delay
-                    }
-                )
-                cardScaleXAnimators.add(
-                    android.animation.ObjectAnimator.ofFloat(child, View.SCALE_X, 1f, 0.88f).apply {
-                        startDelay = delay
-                    }
-                )
-                cardScaleYAnimators.add(
-                    android.animation.ObjectAnimator.ofFloat(child, View.SCALE_Y, 1f, 0.88f).apply {
-                        startDelay = delay
-                    }
-                )
-            }
-
-            val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, container.scaleX, targetScaleX)
-            val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, container.scaleY, targetScaleY)
-            val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, container.translationX, targetTranslationX)
-            val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, container.translationY, targetTranslationY)
-
-            val cornerAnimator = ValueAnimator.ofFloat(startCornerRadius, pillCornerPx).apply {
+            val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = DISMISS_DURATION_MS
+                interpolator = DISMISS_INTERPOLATOR
                 addUpdateListener { anim ->
-                    containerBg?.cornerRadius = anim.animatedValue as Float
+                    val p = anim.animatedValue as Float // 0 -> 1
+                    val t = 1f - p // 1 -> 0
+                    // Content fades out immediately in the first 25% of dismiss
+                    val contentAlpha = if (p >= 0.25f) {
+                        0f
+                    } else {
+                        (1f - (p / 0.25f)).coerceIn(0f, 1f)
+                    }
+                    morphContainer.setMorphState(morphFraction = t, contentAlpha = contentAlpha)
+                    scrimView?.alpha = t * SCRIM_MAX_ALPHA
                 }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        dismissMorphFinished?.invoke()
+                        removeViewFromWindow(rootView)
+                        onDismissListener?.invoke()
+                        isDismissing = false
+                        if (activeAnimator == this@apply) {
+                            activeAnimator = null
+                        }
+                    }
+                })
             }
-
-            val dismissStartColor: Int = cardColor()
-            val dismissEndColor: Int = pillHighlightColor
-            val colorAnimator = ValueAnimator.ofArgb(dismissStartColor, dismissEndColor).apply {
-                addUpdateListener { anim ->
-                    containerBg?.setColor(anim.animatedValue as Int)
-                }
-            }
-
-            val animator = android.animation.AnimatorSet()
-            animator.playTogether(
-                scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator,
-                *cardAlphaAnimators.toTypedArray(),
-                *cardScaleXAnimators.toTypedArray(),
-                *cardScaleYAnimators.toTypedArray(),
-            )
-            animator.duration = DISMISS_DURATION_MS
-            animator.interpolator = EASE_IN_OUT
-            animator.addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    dismissMorphFinished?.invoke()
-                    removeViewFromWindow(view)
-                    onDismissListener?.invoke()
-                    isDismissing = false
-                }
-            })
             activeAnimator = animator
             animator.start()
         } else {
             dismissMorphFinished?.invoke()
-            removeViewFromWindow(view)
+            removeViewFromWindow(rootView)
             onDismissListener?.invoke()
             isDismissing = false
         }
@@ -249,14 +212,42 @@ class DynamicPillExpandedDialog(
     }
 
     private fun buildExpandedView(state: PillState): View {
-        val root = FrameLayout(context)
+        val root = FrameLayout(context).apply {
+            clipChildren = false
+            clipToPadding = false
+        }
+
+        // Dim backdrop scrim
+        val scrim = View(context).apply {
+            tag = "scrim_view"
+            setBackgroundColor(0xFF000000.toInt())
+            alpha = 0f
+            setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    if (onDismissListener != null) {
+                        onDismissListener?.invoke()
+                    } else {
+                        dismiss()
+                    }
+                }
+                true
+            }
+        }
+        root.addView(scrim, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+        ))
+
+        // Morph container
+        val morphContainer = MorphCardContainer(context).apply {
+            tag = "morph_container"
+        }
 
         val cardsContainer = LinearLayout(context).apply {
             id = R.id.expanded_cards_container
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
-            background = createContainerBackground()
             val pad = dpToPx(8)
             setPadding(pad, pad, pad, pad)
             isClickable = true
@@ -264,124 +255,96 @@ class DynamicPillExpandedDialog(
         }
 
         populateCards(state, cardsContainer)
+        morphContainer.contentContainer = cardsContainer
+        morphContainer.addView(cardsContainer, FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+        ))
 
         val containerParams = FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
         ).apply {
-            topMargin = dpToPx(40)
+            topMargin = dpToPx(EXPANDED_MARGIN_TOP_DP)
             marginStart = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
             marginEnd = dpToPx(EXPANDED_MARGIN_HORIZONTAL_DP)
         }
-        root.addView(cardsContainer, containerParams)
-
-        root.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN) {
-                if (onDismissListener != null) {
-                    onDismissListener?.invoke()
-                } else {
-                    dismiss()
-                }
-            }
-            true
-        }
+        root.addView(morphContainer, containerParams)
 
         return root
     }
 
-    private fun morphExpand(view: View) {
-        val container = view.findViewById<LinearLayout>(R.id.expanded_cards_container) ?: return
+    private fun morphExpand(rootView: View) {
+        val morphContainer = rootView.findViewWithTag<MorphCardContainer>("morph_container") ?: return
+        val scrimView = rootView.findViewWithTag<View>("scrim_view")
 
-        container.post {
+        morphContainer.post {
             if (!isShowing || isDismissing) return@post
-            val cw = container.width.toFloat()
-            val ch = container.height.toFloat()
-            if (cw <= 0f || ch <= 0f) return@post
+            val cardW = morphContainer.width.toFloat()
+            val cardH = morphContainer.height.toFloat()
+            if (cardW <= 0f || cardH <= 0f) return@post
 
-            if (pillWidth > 0 && pillHeight > 0) {
-                val containerLoc = IntArray(2)
-                container.getLocationOnScreen(containerLoc)
+            val containerLoc = IntArray(2)
+            morphContainer.getLocationOnScreen(containerLoc)
 
-                val startScaleX = pillWidth / cw
-                val startScaleY = pillHeight / ch
-                val startTransX = (pillScreenX + pillWidth / 2f) - (containerLoc[0] + cw / 2f)
-                val startTransY = (pillScreenY + pillHeight / 2f) - (containerLoc[1] + ch / 2f)
+            val endLeft = containerLoc[0].toFloat()
+            val endTop = containerLoc[1].toFloat()
+            val endRight = endLeft + cardW
+            val endBottom = endTop + cardH
 
-                // --- Set ALL initial states while root is still alpha=0 ---
-                container.scaleX = startScaleX
-                container.scaleY = startScaleY
-                container.translationX = startTransX
-                container.translationY = startTransY
+            val startLeft = pillScreenX.toFloat()
+            val startTop = pillScreenY.toFloat()
+            val startRight = (pillScreenX + pillWidth).toFloat()
+            val startBottom = (pillScreenY + pillHeight).toFloat()
 
-                val containerBg = container.background as? GradientDrawable
-                containerBg?.setColor(pillHighlightColor)
+            morphContainer.startBounds.set(startLeft, startTop, startRight, startBottom)
+            morphContainer.endBounds.set(endLeft, endTop, endRight, endBottom)
 
-                val pillCornerPx = dpToPxF(PILL_CORNER_RADIUS_DP)
-                val targetCornerPx = dpToPxF(CARD_CORNER_RADIUS_DP)
-                containerBg?.cornerRadius = pillCornerPx
+            // Dynamic capsule radius: height / 2 guarantees a true capsule pill shape at t=0
+            morphContainer.startRadius = (pillHeight / 2f).coerceAtLeast(dpToPxF(14f))
+            morphContainer.endRadius = dpToPxF(CARD_CORNER_RADIUS_DP)
 
-                val childCount = container.childCount
-                for (i in 0 until childCount) {
-                    container.getChildAt(i).alpha = 0f
-                }
+            morphContainer.startColor = pillHighlightColor
+            morphContainer.endColor = cardColor()
 
-                // --- NOW reveal with correct initial state (no flash) ---
-                view.alpha = 1f
+            // Initialize state at t=0: Content is fully hidden (alpha=0), container is exact pill shape/position
+            morphContainer.setMorphState(morphFraction = 0f, contentAlpha = 0f)
+            scrimView?.alpha = 0f
 
-                // --- THEN start animations ---
-                val expandMorphStarted = onMorphStarted
-                val expandMorphFinished = onMorphFinished
-                expandMorphStarted?.invoke()
+            // Reveal root now that initial morph geometry is set up (no flicker)
+            rootView.alpha = 1f
 
-                // Cards: just fade in — background already matches container
-                // since both target cardColor(). No separate card color anim.
-                for (i in 0 until childCount) {
-                    val child = container.getChildAt(i)
-                    child.alpha = 0f
+            val expandMorphStarted = onMorphStarted
+            val expandMorphFinished = onMorphFinished
+            expandMorphStarted?.invoke()
 
-                    child.animate()
-                        .alpha(1f)
-                        .setDuration((ANIM_DURATION_MS * 0.35f).toLong())
-                        .setStartDelay((ANIM_DURATION_MS * 0.40f).toLong() + i * 24L)
-                        .setInterpolator(EASE_OUT)
-                        .start()
-                }
-
-                // Scale + translate + corners — full duration.
-                val scaleAnimX = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_X, startScaleX, 1f)
-                val scaleAnimY = android.animation.ObjectAnimator.ofFloat(container, View.SCALE_Y, startScaleY, 1f)
-                val transAnimX = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_X, startTransX, 0f)
-                val transAnimY = android.animation.ObjectAnimator.ofFloat(container, View.TRANSLATION_Y, startTransY, 0f)
-
-                val cornerAnimator = ValueAnimator.ofFloat(pillCornerPx, targetCornerPx).apply {
-                    addUpdateListener { anim ->
-                        containerBg?.cornerRadius = anim.animatedValue as Float
+            val animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = EXPAND_DURATION_MS
+                interpolator = EXPAND_INTERPOLATOR
+                addUpdateListener { anim ->
+                    val t = anim.animatedValue as Float
+                    // Text and controls appear near the end of the morph animation (t >= 0.65)
+                    val contentAlpha = if (t < 0.65f) {
+                        0f
+                    } else {
+                        ((t - 0.65f) / 0.35f).coerceIn(0f, 1f)
                     }
+                    morphContainer.setMorphState(morphFraction = t, contentAlpha = contentAlpha)
+                    scrimView?.alpha = t * SCRIM_MAX_ALPHA
                 }
-
-                // Color cross-fade: faster — starts at 20%, runs 60%.
-                val startColor: Int = pillHighlightColor
-                val endColor: Int = cardColor()
-                val colorAnimator = ValueAnimator.ofArgb(startColor, endColor).apply {
-                    startDelay = (ANIM_DURATION_MS * 0.20f).toLong()
-                    duration = (ANIM_DURATION_MS * 0.60f).toLong()
-                    addUpdateListener { anim ->
-                        containerBg?.setColor(anim.animatedValue as Int)
-                    }
-                }
-
-                val animator = android.animation.AnimatorSet()
-                animator.playTogether(scaleAnimX, scaleAnimY, transAnimX, transAnimY, cornerAnimator, colorAnimator)
-                animator.duration = ANIM_DURATION_MS
-                animator.interpolator = BOUNCY
-                animator.addListener(object : android.animation.AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        morphContainer.setMorphState(morphFraction = 1f, contentAlpha = 1f)
+                        scrimView?.alpha = SCRIM_MAX_ALPHA
                         expandMorphFinished?.invoke()
+                        if (activeAnimator == this@apply) {
+                            activeAnimator = null
+                        }
                     }
                 })
-                activeAnimator = animator
-                animator.start()
             }
+            activeAnimator = animator
+            animator.start()
         }
     }
 
@@ -392,27 +355,30 @@ class DynamicPillExpandedDialog(
     }
 
     private fun populateCards(state: PillState, container: LinearLayout) {
+        val count = state.activeSessions.size
         for (session in state.activeSessions) {
             val card = when (session) {
-                is PillSession.Media -> createMediaCard(session)
-                is PillSession.Clock -> createClockCard(session)
-                is PillSession.Recording -> createRecordingCard(session)
+                is PillSession.Media -> createMediaCard(session, count > 1)
+                is PillSession.Clock -> createClockCard(session, count > 1)
+                is PillSession.Recording -> createRecordingCard(session, count > 1)
             }
             container.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                if (container.childCount > 0) topMargin = dpToPx(4)
+                if (container.childCount > 1) topMargin = dpToPx(6)
             })
         }
     }
 
-    private fun createMediaCard(media: PillSession.Media): View {
+    private fun createMediaCard(media: PillSession.Media, hasMultiple: Boolean): View {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = createCardBackground()
-            setPadding(dpToPx(16), dpToPx(12), dpToPx(12), dpToPx(12))
+            if (hasMultiple) {
+                background = createInnerCardBackground()
+            }
+            setPadding(dpToPx(16), dpToPx(14), dpToPx(12), dpToPx(14))
         }
 
         val info = LinearLayout(context).apply {
@@ -423,15 +389,16 @@ class DynamicPillExpandedDialog(
         info.addView(TextView(context).apply {
             text = media.title.ifEmpty { "Unknown" }
             setTextColor(textColor(true))
-            textSize = 14f
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
 
         info.addView(TextView(context).apply {
-            text = media.artist
+            text = media.artist.ifEmpty { "Media" }
             setTextColor(textColor(false))
-            textSize = 12f
+            textSize = 13f
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
@@ -452,12 +419,14 @@ class DynamicPillExpandedDialog(
         return card
     }
 
-    private fun createClockCard(clock: PillSession.Clock): View {
+    private fun createClockCard(clock: PillSession.Clock, hasMultiple: Boolean): View {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = createCardBackground()
-            setPadding(dpToPx(16), dpToPx(12), dpToPx(12), dpToPx(12))
+            if (hasMultiple) {
+                background = createInnerCardBackground()
+            }
+            setPadding(dpToPx(16), dpToPx(14), dpToPx(12), dpToPx(14))
         }
 
         val info = LinearLayout(context).apply {
@@ -468,7 +437,8 @@ class DynamicPillExpandedDialog(
         info.addView(TextView(context).apply {
             text = if (clock.isStopwatch) "Stopwatch" else "Timer"
             setTextColor(textColor(false))
-            textSize = 12f
+            textSize = 13f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
 
         info.addView(TextView(context).apply {
@@ -479,7 +449,9 @@ class DynamicPillExpandedDialog(
             }
             text = formatTime(displayMillis)
             setTextColor(textColor(true))
-            textSize = 20f
+            textSize = 24f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            fontFeatureSettings = "tnum"
         })
 
         card.addView(info)
@@ -502,12 +474,14 @@ class DynamicPillExpandedDialog(
         return card
     }
 
-    private fun createRecordingCard(recording: PillSession.Recording): View {
+    private fun createRecordingCard(recording: PillSession.Recording, hasMultiple: Boolean): View {
         val card = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            background = createCardBackground()
-            setPadding(dpToPx(16), dpToPx(12), dpToPx(12), dpToPx(12))
+            if (hasMultiple) {
+                background = createInnerCardBackground()
+            }
+            setPadding(dpToPx(16), dpToPx(14), dpToPx(12), dpToPx(14))
         }
 
         val info = LinearLayout(context).apply {
@@ -516,15 +490,18 @@ class DynamicPillExpandedDialog(
         }
 
         info.addView(TextView(context).apply {
-            text = if (recording.isScreenRecord) "Screen Recording" else "Recording"
+            text = if (recording.isScreenRecord) "Screen Recording" else "Voice Recording"
             setTextColor(textColor(false))
-            textSize = 12f
+            textSize = 13f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         })
 
         info.addView(TextView(context).apply {
             text = formatTime(recording.elapsedMillis)
             setTextColor(textColor(true))
-            textSize = 20f
+            textSize = 24f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            fontFeatureSettings = "tnum"
         })
 
         card.addView(info)
@@ -545,13 +522,13 @@ class DynamicPillExpandedDialog(
     private fun makeBtn(drawableRes: Int, onClick: () -> Unit): ImageButton {
         return ImageButton(context).apply {
             setImageResource(drawableRes)
-            background = createRipple(20f)
-            val size = dpToPx(40)
+            background = createRipple(22f)
+            val size = dpToPx(44)
             layoutParams = LinearLayout.LayoutParams(size, size).apply {
                 marginStart = dpToPx(4)
                 marginEnd = dpToPx(4)
             }
-            setPadding(dpToPx(8), dpToPx(8), dpToPx(8), dpToPx(8))
+            setPadding(dpToPx(10), dpToPx(10), dpToPx(10), dpToPx(10))
             setOnClickListener { onClick() }
             colorFilter = android.graphics.PorterDuffColorFilter(
                 iconTint(),
@@ -560,21 +537,11 @@ class DynamicPillExpandedDialog(
         }
     }
 
-    private fun createContainerBackground(): GradientDrawable {
+    private fun createInnerCardBackground(): GradientDrawable {
         return GradientDrawable().apply {
-            cornerRadius = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, PILL_CORNER_RADIUS_DP, resources.displayMetrics,
-            )
-            setColor(cardColor())
-        }
-    }
-
-    private fun createCardBackground(): GradientDrawable {
-        return GradientDrawable().apply {
-            cornerRadius = TypedValue.applyDimension(
-                TypedValue.COMPLEX_UNIT_DIP, CARD_CORNER_RADIUS_DP, resources.displayMetrics,
-            )
-            setColor(cardColor())
+            val radiusPx = dpToPxF(CARD_INNER_CORNER_RADIUS_DP)
+            cornerRadius = radiusPx
+            setColor(innerCardColor())
         }
     }
 
@@ -606,14 +573,104 @@ class DynamicPillExpandedDialog(
         TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics,
     )
 
+    // --- Custom Morphing View Container ---
+
+    private class MorphCardContainer(context: Context) : FrameLayout(context) {
+
+        private val bgDrawable = GradientDrawable()
+        private val clipPath = Path()
+        private val currentRect = RectF()
+
+        val startBounds = RectF()
+        val endBounds = RectF()
+        var startRadius = 0f
+        var endRadius = 0f
+        var startColor = 0
+        var endColor = 0
+
+        var contentContainer: View? = null
+
+        init {
+            setWillNotDraw(false)
+            clipChildren = false
+            clipToPadding = false
+        }
+
+        fun setMorphState(morphFraction: Float, contentAlpha: Float) {
+            if (startBounds.isEmpty || endBounds.isEmpty) {
+                contentContainer?.alpha = contentAlpha
+                return
+            }
+
+            // Smooth linear interpolation of coordinates, corner radius, and color
+            val left = lerp(startBounds.left, endBounds.left, morphFraction)
+            val top = lerp(startBounds.top, endBounds.top, morphFraction)
+            val right = lerp(startBounds.right, endBounds.right, morphFraction)
+            val bottom = lerp(startBounds.bottom, endBounds.bottom, morphFraction)
+            val radius = lerp(startRadius, endRadius, morphFraction)
+            val color = blendArgb(startColor, endColor, morphFraction)
+
+            currentRect.set(left, top, right, bottom)
+
+            // Translate container from its laid-out position (endBounds) to current position
+            translationX = left - endBounds.left
+            translationY = top - endBounds.top
+
+            val w = (right - left).coerceAtLeast(0f)
+            val h = (bottom - top).coerceAtLeast(0f)
+
+            bgDrawable.setColor(color)
+            bgDrawable.cornerRadius = radius
+            bgDrawable.setBounds(0, 0, w.toInt(), h.toInt())
+
+            clipPath.reset()
+            clipPath.addRoundRect(0f, 0f, w, h, radius, radius, Path.Direction.CW)
+
+            // Text and controls fade in smoothly with subtle upward settle
+            contentContainer?.let { content ->
+                content.alpha = contentAlpha
+                content.translationY = (1f - contentAlpha) * dpToPx(8f)
+            }
+
+            invalidate()
+        }
+
+        override fun draw(canvas: Canvas) {
+            if (currentRect.isEmpty) {
+                super.draw(canvas)
+                return
+            }
+
+            val saveCount = canvas.save()
+            canvas.clipPath(clipPath)
+            bgDrawable.draw(canvas)
+            super.draw(canvas)
+            canvas.restoreToCount(saveCount)
+        }
+
+        private fun lerp(start: Float, stop: Float, amount: Float): Float =
+            start + (stop - start) * amount
+
+        private fun blendArgb(color1: Int, color2: Int, ratio: Float): Int {
+            val inverseRatio = 1f - ratio
+            val a = (Color.alpha(color1) * inverseRatio + Color.alpha(color2) * ratio)
+            val r = (Color.red(color1) * inverseRatio + Color.red(color2) * ratio)
+            val g = (Color.green(color1) * inverseRatio + Color.green(color2) * ratio)
+            val b = (Color.blue(color1) * inverseRatio + Color.blue(color2) * ratio)
+            return Color.argb(a.toInt(), r.toInt(), g.toInt(), b.toInt())
+        }
+
+        private fun dpToPx(dp: Float): Float = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics
+        )
+    }
+
     // --- Material You dynamic colors ---
 
-    /** Resolve a framework @android:color resource (e.g. system_accent1_200). */
     private fun resolveColor(resId: Int): Int {
         return try {
             context.resources.getColor(resId, context.theme)
-        } catch (e: Exception) {
-            // Fallback chain: neutral2 surface → accent → hardcoded.
+        } catch (_: Exception) {
             when (resId) {
                 android.R.color.system_neutral2_900 -> 0xFF1C1B1F.toInt()
                 android.R.color.system_neutral2_10 -> 0xFFF4EFF4.toInt()
@@ -627,27 +684,25 @@ class DynamicPillExpandedDialog(
         }
     }
 
-    /** On-surface text: primary = high-emphasis, secondary = medium-emphasis. */
     private fun textColor(primary: Boolean): Int =
-resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.color.system_neutral1_100)
+        resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.color.system_neutral1_100)
 
-    /** Surface container background — tonal surface with elevation. */
     private fun surfaceColor(): Int = resolveColor(android.R.color.system_neutral2_900)
 
-    /** Card surface — slightly elevated above container. */
     private fun cardColor(): Int {
         val base = resolveColor(android.R.color.system_neutral1_900)
-        // 8% white overlay for elevation (Material3 tonal elevation).
+        return blendAlpha(base, 0x1AFFFFFF)
+    }
+
+    private fun innerCardColor(): Int {
+        val base = resolveColor(android.R.color.system_neutral1_900)
         return blendAlpha(base, 0x14FFFFFF)
     }
 
-    /** Icon tint for action buttons — accent1_200 (light accent on dark surface). */
     private fun iconTint(): Int = resolveColor(android.R.color.system_accent1_200)
 
-    /** Ripple color — accent1_100 at 20% opacity. */
     private fun rippleColor(): Int = blendAlpha(resolveColor(android.R.color.system_accent1_100), 0x33000000)
 
-    /** Blend a background color with a foreground at the foreground's alpha. */
     private fun blendAlpha(bg: Int, fg: Int): Int {
         val fgA = (fg ushr 24) and 0xFF
         val fgR = (fg shr 16) and 0xFF
@@ -663,7 +718,6 @@ resolveColor(if (primary) android.R.color.system_neutral1_10 else android.R.colo
         return 0xFF000000.toInt() or (r shl 16) or (g shl 8) or b
     }
 
-    /** Material ripple drawable with the given corner radius. */
     private fun createRipple(cornerRadiusDp: Float): RippleDrawable {
         val radiusPx = TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP, cornerRadiusDp, resources.displayMetrics,

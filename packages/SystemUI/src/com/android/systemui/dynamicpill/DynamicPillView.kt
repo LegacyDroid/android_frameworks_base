@@ -64,6 +64,8 @@ class DynamicPillView @JvmOverloads constructor(
     private val expandInterpolator = PathInterpolator(0.34f, 1.4f, 0.64f, 1.0f)
     private val collapseInterpolator = PathInterpolator(0.4f, 0.0f, 0.2f, 1.0f)
 
+    private var isHiddenForMorph = false
+
     init {
         val inflater = LayoutInflater.from(context)
         inflater.inflate(R.layout.dynamic_pill_content, this, true)
@@ -78,13 +80,44 @@ class DynamicPillView @JvmOverloads constructor(
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (h > 0) {
+            pillBackground.cornerRadius = h / 2f
+        }
+    }
+
     fun setPillClickListener(listener: OnClickListener?) {
         onPillClickListener = listener
     }
 
+    /** Hides or reveals this pill view during a morph animation to prevent overlapping. */
+    fun setHiddenForMorph(hidden: Boolean) {
+        isHiddenForMorph = hidden
+        alpha = if (hidden) 0f else 1f
+    }
+
+    /** Returns the pill's [x, y, width, height] in screen coordinates. */
+    fun getPillBoundsOnScreen(): IntArray {
+        val loc = IntArray(2)
+        getLocationOnScreen(loc)
+        return intArrayOf(loc[0], loc[1], width, height)
+    }
+
+    /** Returns the background surface color of the pill. */
+    fun getPillColor(): Int = resolveSurfaceColor()
+
     fun updateState(state: PillState) {
         val previousHasSessions = currentState.hasActiveSessions
         currentState = state
+
+        if (state.isExpanded || isHiddenForMorph) {
+            // When expanded or morphing, the expanded dialog handles presentation.
+            activeAnimator?.cancel()
+            activeAnimator = null
+            alpha = 0f
+            return
+        }
 
         if (state.hasActiveSessions && !previousHasSessions) {
             transitionToPill(state)
@@ -113,6 +146,7 @@ class DynamicPillView @JvmOverloads constructor(
     }
 
     fun showClock() {
+        if (currentState.isExpanded || isHiddenForMorph) return
         activeAnimator?.cancel()
         activeAnimator = null
         clockText.visibility = View.VISIBLE
