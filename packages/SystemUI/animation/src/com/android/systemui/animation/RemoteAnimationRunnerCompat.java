@@ -47,6 +47,16 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
             RemoteAnimationTarget[] apps, RemoteAnimationTarget[] wallpapers,
             RemoteAnimationTarget[] nonApps, Runnable finishedCallback);
 
+    /**
+     * Offers Shell's incoming transition to merge into the running animation. True accepts:
+     * the caller applies the merged start state, finishes the merge target, and the running
+     * animation reverses in place. False declines and falls back to the legacy cancel path.
+     * Runs on a binder thread; do not block.
+     */
+    public boolean onAnimationMerge(TransitionInfo info) {
+        return false;
+    }
+
     @Override
     public final void onAnimationStart(@TransitionOldType int transit,
             RemoteAnimationTarget[] apps,
@@ -220,12 +230,29 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
             public void mergeAnimation(IBinder token, TransitionInfo info,
                     SurfaceControl.Transaction t, IBinder mergeTarget,
                     IRemoteTransitionFinishedCallback finishCallback) throws RemoteException {
-                // TODO: hook up merge to recents onTaskAppeared if applicable. Until then, adapt
-                //       to legacy cancel.
                 final Runnable finishRunnable;
                 synchronized (mFinishRunnables) {
-                    finishRunnable = mFinishRunnables.remove(mergeTarget);
+                    finishRunnable = mFinishRunnables.get(mergeTarget);
+                    // Offer the merge with the finish lock held so acceptance cannot race the
+                    // animation finishing on another binder thread.
+                    if (finishRunnable != null && runner instanceof RemoteAnimationRunnerCompat
+                            && ((RemoteAnimationRunnerCompat) runner).onAnimationMerge(info)) {
+                        // Shell dropped its copy of the merged start state on accept, so
+                        // apply it here. Finishing the merge skips the force finish of the
+                        // running animation; the finish runnable stays registered so the
+                        // original transition ends with the animation.
+                        t.apply();
+                        info.releaseAllSurfaces();
+                        finishCallback.onTransitionFinished(null /* wct */,
+                                null /* finishT */);
+                        return;
+                    }
+                    if (finishRunnable != null) {
+                        mFinishRunnables.remove(mergeTarget);
+                    }
                 }
+                // Declined: legacy cancel. The merged transition plays fresh after the running
+                // animation is force-finished.
                 // Since we're not actually animating, release native memory now
                 t.close();
                 info.releaseAllSurfaces();
