@@ -57,6 +57,30 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
         return false;
     }
 
+    /**
+     * setupStartState zeroes opening leashes so the playing handler can fade them in. An
+     * accepted merge reverses in place on wrapper leashes, so nothing lifts that zero and
+     * the merged surfaces stay blank. Reassert inside the start transaction so this cannot
+     * lose a race with the caller's apply.
+     */
+    private static void restoreOpeningLeashes(TransitionInfo info,
+            SurfaceControl.Transaction t) {
+        for (int i = info.getChanges().size() - 1; i >= 0; --i) {
+            final TransitionInfo.Change change = info.getChanges().get(i);
+            if (change.hasFlags(TransitionInfo.FLAGS_IS_NON_APP_WINDOW)) {
+                continue;
+            }
+            final int mode = change.getMode();
+            if (mode != TRANSIT_OPEN && mode != TRANSIT_TO_FRONT) {
+                continue;
+            }
+            final SurfaceControl leash = change.getLeash();
+            if (leash != null && leash.isValid()) {
+                t.setAlpha(leash, 1f);
+            }
+        }
+    }
+
     @Override
     public final void onAnimationStart(@TransitionOldType int transit,
             RemoteAnimationTarget[] apps,
@@ -241,6 +265,7 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
                         // apply it here. Finishing the merge skips the force finish of the
                         // running animation; the finish runnable stays registered so the
                         // original transition ends with the animation.
+                        restoreOpeningLeashes(info, t);
                         t.apply();
                         info.releaseAllSurfaces();
                         finishCallback.onTransitionFinished(null /* wct */,
