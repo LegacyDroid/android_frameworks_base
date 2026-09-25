@@ -99,6 +99,7 @@ class DynamicPillController @Inject constructor(
 
     private val callbacks = CopyOnWriteArrayList<DynamicPillCallback>()
     private val activeSessions = mutableMapOf<PillSourceType, PillSession>()
+    private val sessionOrder = mutableListOf<PillSourceType>()
     @Volatile private var currentState = PillState()
     private var clockTickerRunning = false
     private var lastClockTickAt = 0L
@@ -295,6 +296,7 @@ class DynamicPillController @Inject constructor(
         stopClockTicker()
         mediaController = null
         activeSessions.clear()
+        sessionOrder.clear()
         currentState = PillState()
         dispatchState()
     }
@@ -325,29 +327,72 @@ class DynamicPillController @Inject constructor(
     fun getState(): PillState = currentState
 
     private fun addSession(session: PillSession) {
+        if (session.source !in sessionOrder) {
+            sessionOrder.add(0, session.source)
+        }
         activeSessions[session.source] = session
         rebuildState()
     }
 
     private fun removeSession(source: PillSourceType) {
         if (activeSessions.remove(source) != null) {
+            sessionOrder.remove(source)
             rebuildState()
         }
     }
 
     private fun rebuildState() {
-        val sorted = activeSessions.values.sortedByDescending { it.timestamp }
-        val compact = sorted.firstOrNull()
+        val ordered = orderedActiveSessions()
+        val compact = ordered.maxByOrNull { it.timestamp }
         val hidden = matchesForeground(compact)
         if (hidden != currentState.isHiddenForForeground) {
             Log.d(TAG, "pill hidden -> $hidden owner="
                     + "${compact?.let { ownerPackage(it) }} top=$topPackage")
         }
         currentState = currentState.copy(
-            activeSessions = sorted,
+            activeSessions = ordered,
             isHiddenForForeground = hidden,
         )
         dispatchState()
+    }
+
+    private fun orderedActiveSessions(): List<PillSession> {
+        val ordered = mutableListOf<PillSession>()
+        val seen = mutableSetOf<PillSourceType>()
+
+        for (source in sessionOrder) {
+            val session = activeSessions[source] ?: continue
+            if (seen.add(source)) {
+                ordered += session
+            }
+        }
+
+        for (session in activeSessions.values.sortedByDescending { it.timestamp }) {
+            if (seen.add(session.source)) {
+                ordered += session
+            }
+        }
+        return ordered
+    }
+
+    fun reorderActiveSessions(order: List<PillSourceType>) {
+        val available = activeSessions.keys
+        val requested = order
+            .asSequence()
+            .filter { it in available }
+            .distinct()
+            .toList()
+        val requestedSet = requested.toSet()
+        val missing = activeSessions.values
+            .sortedByDescending { it.timestamp }
+            .filter { it.source !in requestedSet }
+            .map { it.source }
+        val normalized = requested + missing
+        if (sessionOrder == normalized) return
+
+        sessionOrder.clear()
+        sessionOrder.addAll(normalized)
+        rebuildState()
     }
 
     private fun dispatchState() {
@@ -370,6 +415,10 @@ class DynamicPillController @Inject constructor(
 
     override fun onMediaPrevious() {
         mediaController?.transportControls?.skipToPrevious()
+    }
+
+    override fun onSessionOrderChanged(order: List<PillSourceType>) {
+        reorderActiveSessions(order)
     }
 
     /** Clock card action dispatch — sends commands to DeskClock. */
@@ -640,6 +689,7 @@ class DynamicPillController @Inject constructor(
         activeSessions.forEach { (source, session) ->
             pw.println("    $source: $session")
         }
+        pw.println("  sessionOrder=$sessionOrder")
         pw.println("  state=$currentState")
         pw.println("  topPackage=$topPackage")
     }

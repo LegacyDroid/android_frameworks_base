@@ -69,6 +69,7 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long) {
 
 /** State emitted by the DynamicPillController. */
 data class PillState(
+    /** Active sessions in expanded card display order. */
     val activeSessions: List<PillSession> = emptyList(),
     val isExpanded: Boolean = false,
     /** True while the foreground app owns the currently displayed session. */

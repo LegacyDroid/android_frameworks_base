@@ -26,15 +26,19 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.RoundRectShape
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
 import android.widget.FrameLayout
@@ -43,6 +47,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.android.systemui.R
 import java.util.Locale
+import kotlin.math.abs
 
 class DynamicPillExpandedDialog(
     private val context: Context,
@@ -67,9 +72,13 @@ class DynamicPillExpandedDialog(
     private var containerView: View? = null
     private var isShowing = false
     private var isDismissing = false
+    private var isMorphAnimating = false
     private var activeAnimator: ValueAnimator? = null
     private var onActionListener: ActionListener? = null
     private var onDismissListener: (() -> Unit)? = null
+    private var latestState = PillState()
+    private var pendingState: PillState? = null
+    private var renderedSessions = emptyList<PillSession>()
 
     private var pillScreenX = 0
     private var pillScreenY = 0
@@ -104,6 +113,7 @@ class DynamicPillExpandedDialog(
         fun onRecordingPauseResume() {}
         fun onRecordingStop() {}
         fun onDismiss() {}
+        fun onSessionOrderChanged(order: List<PillSourceType>) {}
     }
 
     fun setActionListener(listener: ActionListener) {
@@ -119,6 +129,10 @@ class DynamicPillExpandedDialog(
             updateContent(state)
             return
         }
+
+        latestState = state
+        pendingState = null
+        renderedSessions = emptyList()
 
         if (pillRect != null && pillRect.size >= 4 && pillRect[2] > 0 && pillRect[3] > 0) {
             pillScreenX = pillRect[0]
@@ -153,7 +167,12 @@ class DynamicPillExpandedDialog(
         val rootView = containerView ?: return
         val morphContainer = rootView.findViewWithTag<MorphCardContainer>("morph_container")
         val scrimView = rootView.findViewWithTag<View>("scrim_view")
+        rootView.findViewWithTag<ReorderableCardLayout>("cards_layout")?.let {
+            it.cancelGesture()
+            it.dragEnabled = false
+        }
 
+        isMorphAnimating = true
         isDismissing = true
         isShowing = false
 
@@ -183,6 +202,7 @@ class DynamicPillExpandedDialog(
                 }
                 addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
+                        isMorphAnimating = false
                         dismissMorphFinished?.invoke()
                         removeViewFromWindow(rootView)
                         onDismissListener?.invoke()
@@ -196,6 +216,7 @@ class DynamicPillExpandedDialog(
             activeAnimator = animator
             animator.start()
         } else {
+            isMorphAnimating = false
             dismissMorphFinished?.invoke()
             removeViewFromWindow(rootView)
             onDismissListener?.invoke()
@@ -204,10 +225,66 @@ class DynamicPillExpandedDialog(
     }
 
     fun updateContent(state: PillState) {
+        latestState = state
         val view = containerView ?: return
-        val cardsContainer = view.findViewById<LinearLayout>(R.id.expanded_cards_container) ?: return
-        cardsContainer.removeAllViews()
-        populateCards(state, cardsContainer)
+        val cardsContainer = view.findViewWithTag<ReorderableCardLayout>("cards_layout") ?: return
+        if (isMorphAnimating || cardsContainer.isGestureActive) {
+            pendingState = state
+            return
+        }
+        pendingState = null
+        updateCards(latestState, cardsContainer)
+    }
+
+    private fun onSessionOrderSettled(order: List<PillSourceType>) {
+        onActionListener?.onSessionOrderChanged(order)
+        if (pendingState != null || onActionListener == null) {
+            applyPendingState()
+        }
+    }
+
+    private fun applyPendingState() {
+        val state = pendingState ?: latestState
+        pendingState = null
+        latestState = state
+        val view = containerView ?: return
+        val cardsContainer = view.findViewWithTag<ReorderableCardLayout>("cards_layout") ?: return
+        updateCards(latestState, cardsContainer)
+    }
+
+    private fun applyPendingStateIfNeeded() {
+        if (pendingState != null) {
+            applyPendingState()
+        }
+    }
+
+    private fun updateCards(state: PillState, container: ReorderableCardLayout) {
+        val oldBySource = renderedSessions.associateBy { it.source }
+        val sameContent = state.activeSessions.all { oldBySource[it.source] == it }
+        if (renderedSessions.size == state.activeSessions.size && sameContent) {
+            val bySource = (0 until container.childCount).associate { index ->
+                val card = container.getChildAt(index)
+                card.tag as PillSourceType to card
+            }
+            val order = state.activeSessions.mapNotNull { bySource[it.source] }
+            if (order.size == container.childCount) {
+                container.reorderChildren(order)
+                renderedSessions = state.activeSessions
+                return
+            }
+        }
+
+        populateCards(state, container)
+        refreshExpandedGeometry()
+    }
+
+    private fun refreshExpandedGeometry() {
+        val view = containerView ?: return
+        val morphContainer = view.findViewWithTag<MorphCardContainer>("morph_container") ?: return
+        morphContainer.post {
+            if (!isShowing || isDismissing || isMorphAnimating) return@post
+            morphContainer.refreshRestingGeometry()
+        }
     }
 
     private fun buildExpandedView(state: PillState): View {
@@ -242,15 +319,25 @@ class DynamicPillExpandedDialog(
             tag = "morph_container"
         }
 
-        val cardsContainer = LinearLayout(context).apply {
+        val cardsContainer = ReorderableCardLayout(context).apply {
             id = R.id.expanded_cards_container
+            tag = "cards_layout"
             orientation = LinearLayout.VERTICAL
             clipChildren = false
             clipToPadding = false
             val pad = dpToPx(8)
+            val gap = dpToPx(6)
             setPadding(pad, pad, pad, pad)
+            itemSpacing = gap
+            showDividers = LinearLayout.SHOW_DIVIDER_MIDDLE
+            dividerPadding = 0
+            dividerDrawable = object : ColorDrawable(Color.TRANSPARENT) {
+                override fun getIntrinsicHeight(): Int = gap
+            }
             isClickable = true
             isFocusable = true
+            onOrderChanged = { order -> onSessionOrderSettled(order) }
+            onGestureCanceled = { applyPendingStateIfNeeded() }
         }
 
         populateCards(state, cardsContainer)
@@ -276,6 +363,9 @@ class DynamicPillExpandedDialog(
     private fun morphExpand(rootView: View) {
         val morphContainer = rootView.findViewWithTag<MorphCardContainer>("morph_container") ?: return
         val scrimView = rootView.findViewWithTag<View>("scrim_view")
+        val cardsLayout = rootView.findViewWithTag<ReorderableCardLayout>("cards_layout")
+        isMorphAnimating = true
+        cardsLayout?.dragEnabled = false
 
         morphContainer.post {
             if (!isShowing || isDismissing) return@post
@@ -333,9 +423,15 @@ class DynamicPillExpandedDialog(
                 }
                 addListener(object : AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: Animator) {
+                        if (isDismissing) return
+                        isMorphAnimating = false
                         morphContainer.setMorphState(morphFraction = 1f, contentAlpha = 1f)
                         scrimView?.alpha = SCRIM_MAX_ALPHA
+                        cardsLayout?.dragEnabled = true
                         expandMorphFinished?.invoke()
+                        if (pendingState != null) {
+                            applyPendingState()
+                        }
                         if (activeAnimator == this@apply) {
                             activeAnimator = null
                         }
@@ -354,6 +450,7 @@ class DynamicPillExpandedDialog(
     }
 
     private fun populateCards(state: PillState, container: LinearLayout) {
+        container.removeAllViews()
         val count = state.activeSessions.size
         for (session in state.activeSessions) {
             val card = when (session) {
@@ -361,13 +458,13 @@ class DynamicPillExpandedDialog(
                 is PillSession.Clock -> createClockCard(session, count > 1)
                 is PillSession.Recording -> createRecordingCard(session, count > 1)
             }
+            card.tag = session.source
             container.addView(card, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply {
-                if (container.childCount > 1) topMargin = dpToPx(6)
-            })
+            ))
         }
+        renderedSessions = state.activeSessions
     }
 
     private fun createMediaCard(media: PillSession.Media, hasMultiple: Boolean): View {
@@ -572,7 +669,284 @@ class DynamicPillExpandedDialog(
         TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics,
     )
 
-    // --- Custom Morphing View Container ---
+    private class ReorderableCardLayout(context: Context) : LinearLayout(context) {
+
+        var dragEnabled = false
+        var itemSpacing = 0
+        var onOrderChanged: ((List<PillSourceType>) -> Unit)? = null
+        var onGestureCanceled: (() -> Unit)? = null
+
+        val isGestureActive: Boolean
+            get() = isDragging || isSettling
+
+        private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+        private val reorderInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+        private val settleInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+        private var downX = 0f
+        private var downY = 0f
+        private var candidate: View? = null
+        private var draggedView: View? = null
+        private var fingerOffset = 0f
+        private var originalOrder = emptyList<View>()
+        private var visualOrder = mutableListOf<View>()
+        private var settleAnimator: ValueAnimator? = null
+        private var settlePreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
+        private var isDragging = false
+        private var isSettling = false
+
+        override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                    candidate = findCardUnder(event.y)
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val child = candidate ?: return false
+                    val deltaY = abs(event.y - downY)
+                    val deltaX = abs(event.x - downX)
+                    if (dragEnabled && childCount > 1 && deltaY > touchSlop && deltaY > deltaX) {
+                        beginDrag(child)
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    candidate = null
+                }
+            }
+            return false
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    if (!dragEnabled || childCount < 2) return false
+                    downX = event.x
+                    downY = event.y
+                    candidate = findCardUnder(event.y)
+                    return candidate != null
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val child = draggedView ?: candidate ?: return false
+                    if (!isDragging) {
+                        if (!dragEnabled) return false
+                        if (!beginDrag(child)) return false
+                    }
+                    updateDrag(event.y)
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        updateDrag(event.y)
+                        settle()
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    if (isDragging || isSettling) {
+                        cancelGesture()
+                        onGestureCanceled?.invoke()
+                        return true
+                    }
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    if (isDragging || isSettling) {
+                        cancelGesture()
+                        onGestureCanceled?.invoke()
+                        return true
+                    }
+                }
+            }
+            return isDragging || isSettling
+        }
+
+        fun cancelGesture() {
+            settlePreDrawListener?.let { listener ->
+                viewTreeObserver.removeOnPreDrawListener(listener)
+            }
+            settlePreDrawListener = null
+            settleAnimator?.removeAllListeners()
+            settleAnimator?.cancel()
+            settleAnimator = null
+            for (index in 0 until childCount) {
+                val child = getChildAt(index)
+                child.animate().cancel()
+                resetCardTransform(child)
+            }
+            isDragging = false
+            isSettling = false
+            candidate = null
+            draggedView = null
+            originalOrder = emptyList()
+            visualOrder.clear()
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
+
+        override fun onDetachedFromWindow() {
+            cancelGesture()
+            super.onDetachedFromWindow()
+        }
+
+        private fun findCardUnder(y: Float): View? {
+            for (index in 0 until childCount) {
+                val child = getChildAt(index)
+                if (y >= child.top && y <= child.top + child.height) {
+                    return child
+                }
+            }
+            return null
+        }
+
+        private fun beginDrag(child: View): Boolean {
+            if (!dragEnabled || childCount < 2 || isDragging || isSettling) return false
+            originalOrder = (0 until childCount).map { getChildAt(it) }
+            visualOrder = originalOrder.toMutableList()
+            draggedView = child
+            fingerOffset = downY - child.top
+            isDragging = true
+            child.translationZ = resources.displayMetrics.density * 4f
+            child.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            parent?.requestDisallowInterceptTouchEvent(true)
+            return true
+        }
+
+        private fun updateDrag(y: Float) {
+            val child = draggedView ?: return
+            child.translationY = y - fingerOffset - child.top
+            maybeReorder()
+        }
+
+        private fun maybeReorder() {
+            val child = draggedView ?: return
+            var moved = false
+            while (true) {
+                val index = visualOrder.indexOf(child)
+                if (index < 0) return
+                val targets = targetTranslations(visualOrder)
+                val center = child.top + child.height / 2f + child.translationY
+                val above = visualOrder.getOrNull(index - 1)
+                val below = visualOrder.getOrNull(index + 1)
+                val aboveCenter = above?.let {
+                    it.top + (targets[it] ?: 0f) + it.height / 2f
+                }
+                val belowCenter = below?.let {
+                    it.top + (targets[it] ?: 0f) + it.height / 2f
+                }
+
+                when {
+                    above != null && center < aboveCenter!! - touchSlop -> {
+                        visualOrder.removeAt(index)
+                        visualOrder.add(index - 1, child)
+                        moved = true
+                    }
+                    below != null && center > belowCenter!! + touchSlop -> {
+                        visualOrder.removeAt(index)
+                        visualOrder.add(index + 1, child)
+                        moved = true
+                    }
+                    else -> break
+                }
+            }
+
+            if (moved) {
+                child.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                animateSiblingsToTargets()
+            }
+        }
+
+        private fun animateSiblingsToTargets() {
+            val dragged = draggedView ?: return
+            val targets = targetTranslations(visualOrder)
+            val moved = visualOrder.filter { it !== dragged }
+            if (moved.isEmpty()) return
+
+            moved.forEach { child ->
+                child.animate().cancel()
+                child.animate()
+                    .translationY(targets[child] ?: 0f)
+                    .setDuration(140L)
+                    .setInterpolator(reorderInterpolator)
+                    .start()
+            }
+        }
+
+        private fun settle() {
+            val child = draggedView ?: return
+            child.parent?.requestDisallowInterceptTouchEvent(false)
+            isDragging = false
+            isSettling = true
+
+            val finalOrder = visualOrder.toList()
+            val targets = targetTranslations(finalOrder)
+            val starts = finalOrder.associateWith { it.translationY }
+            settleAnimator?.cancel()
+            settleAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 220L
+                interpolator = settleInterpolator
+                addUpdateListener { animator ->
+                    val progress = animator.animatedValue as Float
+                    finalOrder.forEach { card ->
+                        card.translationY = lerp(starts[card] ?: 0f, targets[card] ?: 0f, progress)
+                    }
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: Animator) {
+                        settleAnimator = null
+                        finalOrder.forEach { resetCardTransform(it) }
+                        reorderChildren(finalOrder)
+                        parent?.requestDisallowInterceptTouchEvent(false)
+
+                        val observer = viewTreeObserver
+                        val listener = object : ViewTreeObserver.OnPreDrawListener {
+                            override fun onPreDraw(): Boolean {
+                                observer.removeOnPreDrawListener(this)
+                                settlePreDrawListener = null
+                                isSettling = false
+                                onOrderChanged?.invoke(finalOrder.map { it.tag as PillSourceType })
+                                draggedView = null
+                                candidate = null
+                                return false
+                            }
+                        }
+                        settlePreDrawListener = listener
+                        observer.addOnPreDrawListener(listener)
+                    }
+                })
+                start()
+            }
+        }
+
+        private fun targetTranslations(order: List<View>): Map<View, Float> {
+            val targets = mutableMapOf<View, Float>()
+            var top = paddingTop.toFloat()
+            for (child in order) {
+                targets[child] = top - child.top
+                top += child.height.toFloat() + itemSpacing.toFloat()
+            }
+            return targets
+        }
+
+        fun reorderChildren(order: List<View>) {
+            val currentOrder = (0 until childCount).map { getChildAt(it) }
+            if (currentOrder == order) return
+            order.forEach { removeView(it) }
+            order.forEachIndexed { index, child ->
+                addView(child, index, child.layoutParams)
+            }
+        }
+
+        private fun resetCardTransform(card: View) {
+            card.translationY = 0f
+            card.translationZ = 0f
+            card.scaleX = 1f
+            card.scaleY = 1f
+        }
+
+        private fun lerp(start: Float, end: Float, amount: Float): Float =
+            start + (end - start) * amount
+    }
+
+    // Custom morphing view container
 
     private class MorphCardContainer(context: Context) : FrameLayout(context) {
 
@@ -593,6 +967,16 @@ class DynamicPillExpandedDialog(
             setWillNotDraw(false)
             clipChildren = false
             clipToPadding = false
+        }
+
+        fun refreshRestingGeometry() {
+            if (startBounds.isEmpty || endBounds.isEmpty || width <= 0 || height <= 0) return
+            val location = IntArray(2)
+            getLocationOnScreen(location)
+            val left = location[0].toFloat()
+            val top = location[1].toFloat()
+            endBounds.set(left, top, left + width, top + height)
+            setMorphState(morphFraction = 1f, contentAlpha = contentContainer?.alpha ?: 1f)
         }
 
         fun setMorphState(morphFraction: Float, contentAlpha: Float) {
