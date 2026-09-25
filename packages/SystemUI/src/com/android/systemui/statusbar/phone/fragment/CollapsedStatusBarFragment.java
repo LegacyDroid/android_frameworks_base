@@ -195,6 +195,10 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         public void onPillStateChanged(PillState state) {
             if (mDynamicPillView == null) return;
 
+            // Capture the compact pill's laid-out bounds before updating the state. Measuring it
+            // with an UNSPECIFIED width later would use the full, unbounded text width and make
+            // the morph start at a width that is wider than the pill shown to the user.
+            final int[] compactPillRect = mDynamicPillView.getPillBoundsOnScreen();
             mDynamicPillView.updateState(state);
             boolean expanded = state.isExpanded();
             boolean showPill = state.isPillVisible();
@@ -237,14 +241,6 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                 if (!mExpandedDialog.isShowing()) {
                     if (mNotificationIconArea != null) {
                         final int oldRight = mNotificationIconArea.getRight();
-                        // Force a measure pass so getWidth()/getHeight() reflect
-                        // the current text content (updateState just changed it).
-                        mDynamicPillView.measure(
-                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                                View.MeasureSpec.makeMeasureSpec(mDynamicPillView.getHeight(), View.MeasureSpec.EXACTLY));
-                        int[] loc = new int[2];
-                        mDynamicPillView.getLocationOnScreen(loc);
-                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getMeasuredWidth(), mDynamicPillView.getHeight() };
                         mDynamicPillView.setVisibility(View.GONE);
                         mPillVisible = false;
                         mNotificationIconArea.getViewTreeObserver().addOnPreDrawListener(
@@ -265,16 +261,8 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
                                         return true;
                                     }
                                 });
-                        mExpandedDialog.show(state, pillRect, getPillHighlightColor());
-                    } else {
-                        mDynamicPillView.measure(
-                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                                View.MeasureSpec.makeMeasureSpec(mDynamicPillView.getHeight(), View.MeasureSpec.EXACTLY));
-                        int[] loc = new int[2];
-                        mDynamicPillView.getLocationOnScreen(loc);
-                        int[] pillRect = { loc[0], loc[1], mDynamicPillView.getMeasuredWidth(), mDynamicPillView.getHeight() };
-                        mExpandedDialog.show(state, pillRect, getPillHighlightColor());
                     }
+                    mExpandedDialog.show(state, compactPillRect, getPillHighlightColor());
                 } else {
                     mExpandedDialog.updateContent(state);
                 }
@@ -348,9 +336,9 @@ public class CollapsedStatusBarFragment extends Fragment implements CommandQueue
         if (mDynamicPillView == null) {
             return 0;
         }
-        int spec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED);
-        mDynamicPillView.measure(spec, spec);
-        return mDynamicPillView.getMeasuredWidth();
+        // Use the actual laid-out width. An UNSPECIFIED re-measure would use the full
+        // width of a long text and reintroduce the same wrong geometry as the expand morph.
+        return mDynamicPillView.getWidth();
     }
 
     /**
