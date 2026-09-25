@@ -133,8 +133,15 @@ class DynamicPillController @Inject constructor(
             val current = activeSessions[PillSourceType.MEDIA] as? PillSession.Media ?: return
             val now = SystemClock.elapsedRealtime()
             addSession(
-                if (playing) current.copy(isPlaying = true, lastActiveAt = now)
-                else current.copy(isPlaying = false)
+                if (playing) current.copy(
+                    isPlaying = true,
+                    lastActiveAt = now,
+                    activationTimestamp = current.timestamp,
+                )
+                else current.copy(
+                    isPlaying = false,
+                    activationTimestamp = current.timestamp,
+                )
             )
         }
 
@@ -148,6 +155,7 @@ class DynamicPillController @Inject constructor(
                     artist = metadata?.getString(
                         android.media.MediaMetadata.METADATA_KEY_ARTIST
                     ) ?: current.artist,
+                    activationTimestamp = current.timestamp,
                 )
             )
         }
@@ -193,6 +201,12 @@ class DynamicPillController @Inject constructor(
             isSsReactivated: Boolean,
         ) {
             if (data.isPlaying == true) {
+                val previous = activeSessions[PillSourceType.MEDIA] as? PillSession.Media
+                val activationTimestamp = if (previous?.sessionKey == key) {
+                    previous.timestamp
+                } else {
+                    System.currentTimeMillis()
+                }
                 val session = PillSession.Media(
                     packageName = data.packageName,
                     title = data.song?.toString() ?: "",
@@ -203,6 +217,7 @@ class DynamicPillController @Inject constructor(
                     sessionKey = key,
                     token = data.token,
                     lastActiveAt = SystemClock.elapsedRealtime(),
+                    activationTimestamp = activationTimestamp,
                 )
                 mediaController = data.token?.let { MediaController(context, it) }
                 mediaIsPlaying = true
@@ -426,8 +441,13 @@ class DynamicPillController @Inject constructor(
             isPlaying = isPlaying,
             duration = 0L,
             position = 0L,
+            sessionKey = known?.sessionKey,
             token = target.sessionToken,
             lastActiveAt = lastActiveAt,
+            activationTimestamp = known
+                ?.takeIf { it.packageName == target.packageName }
+                ?.timestamp
+                ?: System.currentTimeMillis(),
         )
         mediaController = MediaController(context, target.sessionToken)
         mediaIsPlaying = isPlaying
@@ -456,6 +476,10 @@ class DynamicPillController @Inject constructor(
                             elapsedMillis = elapsed,
                             isPaused = state == STATE_PAUSED,
                             totalCountdownMillis = total,
+                            activationTimestamp = currentClock
+                                ?.takeIf { !it.isStopwatch }
+                                ?.timestamp
+                                ?: System.currentTimeMillis(),
                         )
                     )
                 }
@@ -473,6 +497,10 @@ class DynamicPillController @Inject constructor(
                             isStopwatch = true,
                             elapsedMillis = elapsed,
                             isPaused = state == STATE_PAUSED,
+                            activationTimestamp = currentClock
+                                ?.takeIf { it.isStopwatch }
+                                ?.timestamp
+                                ?: System.currentTimeMillis(),
                         )
                     )
                 }
@@ -514,7 +542,12 @@ class DynamicPillController @Inject constructor(
 
         val clockSession = activeSessions[PillSourceType.CLOCK] as? PillSession.Clock ?: return
         if (!clockSession.isPaused && delta > 0L) {
-            addSession(clockSession.copy(elapsedMillis = clockSession.elapsedMillis + delta))
+            addSession(
+                clockSession.copy(
+                    elapsedMillis = clockSession.elapsedMillis + delta,
+                    activationTimestamp = clockSession.timestamp,
+                )
+            )
         }
     }
 
@@ -553,6 +586,7 @@ class DynamicPillController @Inject constructor(
         val updated = current.copy(
             isPaused = isPaused ?: current.isPaused,
             elapsedMillis = elapsedMillis ?: current.elapsedMillis,
+            activationTimestamp = current.timestamp,
         )
         addSession(updated)
     }

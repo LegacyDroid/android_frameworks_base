@@ -26,7 +26,7 @@ enum class PillSourceType {
 }
 
 /** Base class for all dynamic pill session data. */
-sealed class PillSession(val source: PillSourceType, val timestamp: Long = System.currentTimeMillis()) {
+sealed class PillSession(val source: PillSourceType, val timestamp: Long) {
     /** Media playback session. */
     data class Media(
         val packageName: String,
@@ -43,7 +43,9 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long = Syste
          * populate the pill, so a fresh boot with no active playback stays clean.
          */
         val lastActiveAt: Long = 0L,
-    ) : PillSession(PillSourceType.MEDIA)
+        /** When this media session was first activated; updates must preserve it. */
+        val activationTimestamp: Long = System.currentTimeMillis(),
+    ) : PillSession(PillSourceType.MEDIA, activationTimestamp)
 
     /** Clock timer or stopwatch session. */
     data class Clock(
@@ -51,14 +53,18 @@ sealed class PillSession(val source: PillSourceType, val timestamp: Long = Syste
         val elapsedMillis: Long,
         val isPaused: Boolean,
         val totalCountdownMillis: Long = 0L,
-    ) : PillSession(PillSourceType.CLOCK)
+        /** When this clock session was first activated; ticks must preserve it. */
+        val activationTimestamp: Long = System.currentTimeMillis(),
+    ) : PillSession(PillSourceType.CLOCK, activationTimestamp)
 
     /** Screen or voice recording session. */
     data class Recording(
         val isScreenRecord: Boolean,
         val elapsedMillis: Long,
         val isPaused: Boolean,
-    ) : PillSession(PillSourceType.RECORDING)
+        /** When this recording session was first activated. */
+        val activationTimestamp: Long = System.currentTimeMillis(),
+    ) : PillSession(PillSourceType.RECORDING, activationTimestamp)
 }
 
 /** State emitted by the DynamicPillController. */

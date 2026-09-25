@@ -111,11 +111,10 @@ class DynamicPillExpandedDialog(
     }
 
     fun show(state: PillState, pillRect: IntArray? = null, pillColor: Int = surfaceColor()) {
-        if (isDismissing) {
-            activeAnimator?.cancel()
-            activeAnimator = null
-            isDismissing = false
-        }
+        // A state update can arrive while a dismiss morph is still running. Do not cancel that
+        // morph and enter show again: its completion callback can otherwise dismiss the dialog again
+        // and make the cards oscillate as the state toggles.
+        if (isDismissing) return
         if (isShowing) {
             updateContent(state)
             return
